@@ -7,15 +7,18 @@ import {
   api,
   ApiError,
   SYNC_EVENT,
+  type ContributorsResponse,
   type IssueRow,
   type Paginated,
   type PullRequestRow,
   type RepoSummary,
+  type TrafficResponse,
 } from "@/lib/api";
 import { Tabs, type TabKey } from "@/components/repo-detail/Tabs";
 import { OverviewPanel } from "@/components/repo-detail/OverviewPanel";
 import { PullsTable } from "@/components/repo-detail/PullsTable";
 import { IssuesTable } from "@/components/repo-detail/IssuesTable";
+import { ContributorsPanel } from "@/components/repo-detail/ContributorsPanel";
 
 type StateFilter = "all" | "open" | "closed" | "merged";
 
@@ -34,6 +37,8 @@ export default function RepoDetailPage({
 
   const [pulls, setPulls] = useState<Paginated<PullRequestRow> | null>(null);
   const [issues, setIssues] = useState<Paginated<IssueRow> | null>(null);
+  const [traffic, setTraffic] = useState<TrafficResponse | null>(null);
+  const [contributors, setContributors] = useState<ContributorsResponse | null>(null);
   const [pullsState, setPullsState] = useState<StateFilter>("all");
   const [issuesState, setIssuesState] = useState<"all" | "open" | "closed">("all");
 
@@ -69,24 +74,46 @@ export default function RepoDetailPage({
     }
   }, [owner, name, issuesState]);
 
+  const loadTraffic = useCallback(async () => {
+    try {
+      setTraffic(await api<TrafficResponse>(`/api/repos/${owner}/${name}/traffic`));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : String(e));
+    }
+  }, [owner, name]);
+
+  const loadContributors = useCallback(async () => {
+    try {
+      setContributors(
+        await api<ContributorsResponse>(`/api/repos/${owner}/${name}/contributors`),
+      );
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : String(e));
+    }
+  }, [owner, name]);
+
   // Initial load + sync-event refresh
   useEffect(() => {
     loadRepo();
+    loadTraffic();  // Traffic shows on Overview, which is the default tab
     const handler = () => {
       loadRepo();
+      loadTraffic();
       if (tab === "pulls") loadPulls();
       if (tab === "issues") loadIssues();
+      if (tab === "contributors") loadContributors();
     };
     window.addEventListener(SYNC_EVENT, handler);
     return () => window.removeEventListener(SYNC_EVENT, handler);
-  }, [loadRepo, loadPulls, loadIssues, tab]);
+  }, [loadRepo, loadTraffic, loadPulls, loadIssues, loadContributors, tab]);
 
   // Single effect handles tab activation and filter changes.
   // The `if (tab === ...)` guards prevent loading when on a different tab.
   useEffect(() => {
     if (tab === "pulls") loadPulls();
     if (tab === "issues") loadIssues();
-  }, [tab, pullsState, issuesState, loadPulls, loadIssues]);
+    if (tab === "contributors") loadContributors();
+  }, [tab, pullsState, issuesState, loadPulls, loadIssues, loadContributors]);
 
   if (error) {
     return (
@@ -170,7 +197,7 @@ export default function RepoDetailPage({
         }}
       />
 
-      {tab === "overview" && <OverviewPanel repo={repo} />}
+      {tab === "overview" && <OverviewPanel repo={repo} traffic={traffic} />}
 
       {tab === "pulls" && (
         <div>
@@ -204,8 +231,17 @@ export default function RepoDetailPage({
 
       {tab === "releases" && (
         <div className="rounded-lg border border-zinc-800 p-12 text-center text-sm text-zinc-500">
-          Phase 6 lights up releases — for now, click <a href={`${githubUrl}/releases`} target="_blank" rel="noreferrer" className="text-teal-400 hover:underline">Releases on GitHub</a>.
+          See the <Link href="/releases" className="text-teal-400 hover:underline">Releases page</Link> for the full draft-notes view across all repos, or click{" "}
+          <a href={`${githubUrl}/releases`} target="_blank" rel="noreferrer" className="text-teal-400 hover:underline">Releases on GitHub</a>.
         </div>
+      )}
+
+      {tab === "contributors" && (
+        contributors ? (
+          <ContributorsPanel rows={contributors.items} fullName={fullName} />
+        ) : (
+          <Skeleton />
+        )
       )}
     </div>
   );

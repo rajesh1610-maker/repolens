@@ -2,7 +2,7 @@
 
 > Solo-maintainer cockpit for your entire OSS surface.
 
-**Status:** Phases 0–6 complete (incl. test backfill) · Phase 7 (traffic + sparklines) next · v0.1 target
+**Status:** Phases 0–7 complete (incl. test backfill + 2 QA passes) · Phase 8 (AI digest) next · v0.1 target
 **Started:** 2026-05-07
 
 GitHub gives you ten different screens for ten different things. RepoLens is one screen for all of them — across every repo you maintain.

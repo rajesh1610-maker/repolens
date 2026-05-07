@@ -5,6 +5,7 @@ import { Star, GitPullRequest, CircleDot, GitBranch, Lock } from "lucide-react";
 import type { RepoSummary } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Sparkline } from "@/components/charts/Sparkline";
 
 export function RepoCard({ repo }: { repo: RepoSummary }) {
   const href = `/repos/${repo.owner}/${repo.name}`;
@@ -41,10 +42,18 @@ export function RepoCard({ repo }: { repo: RepoSummary }) {
       )}
       {!repo.description && <div className="min-h-[2rem] mb-4" />}
 
-      <div className="grid grid-cols-3 gap-2 mb-4 text-xs">
-        <Stat icon={Star} label="stars" value={repo.stars} />
-        <Stat icon={GitPullRequest} label="PRs" value={repo.open_pulls_count} />
-        <Stat icon={CircleDot} label="issues" value={repo.open_issues_real_count} />
+      <div className="flex items-end justify-between gap-3 mb-4">
+        <div className="grid grid-cols-3 gap-2 text-xs flex-1 min-w-0">
+          <Stat icon={Star} label="stars" value={repo.stars} />
+          <Stat icon={GitPullRequest} label="PRs" value={repo.open_pulls_count} />
+          <Stat icon={CircleDot} label="issues" value={repo.open_issues_real_count} />
+        </div>
+        <Sparkline
+          data={repo.stars_30d ?? []}
+          width={72}
+          height={22}
+          className="text-teal-400/70 shrink-0"
+        />
       </div>
 
       <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-3 border-t border-zinc-800/60">

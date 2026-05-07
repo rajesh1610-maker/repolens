@@ -228,3 +228,37 @@ don't repeat.
 
 ### D40 — Hotkey `o` calls `preventDefault()`
 - **Why:** `j` and `k` already did; `o` had a TOCTOU window where the browser's default could fire before our `window.open`. Trivial fix, consistent now.
+
+---
+
+## 2026-05-07 — Phase 7 (traffic, contributors, stars history)
+
+### D41 — Charts are hand-rolled SVG, no chart library
+- **Options:** Recharts (~80KB), Visx (heavier), uPlot, hand-roll
+- **Choice:** Hand-rolled SVG paths (Sparkline ~50 LOC, TrafficChart ~140 LOC including hover-tooltip)
+- **Why:** Both charts have well-defined inputs and limited interaction needs. Adding a chart lib for two non-interactive views is dead weight. Swap if v0.2 needs richer charts.
+
+### D42 — Stars history is a daily snapshot of `repo.stargazers_count`
+- **Options:** (A) Paginate `/stargazers` for full history (1+N×100 calls per repo), (B) snapshot `stargazers_count` each sync and accumulate
+- **Choice:** B
+- **Why:** Pagination cost scales with star count and gives a one-time bootstrap value the user could already get from GitHub Insights. Daily snapshots start sparse but accrue honestly and reveal *trend* — which is what the sparkline is for.
+- **Phase 9 polish:** optional bootstrap that paginates `/stargazers?per_page=100` once on first sync to fill ~3 months of history.
+
+### D43 — Daily-data sync runs every full_sync (no per-repo gate in v0.1)
+- **Options:** (A) Add `last_daily_synced_at` per repo, gate at 24h, (B) Run on every full_sync regardless
+- **Choice:** B
+- **Why:** Spec said 24h cadence to be conservative on quota. With 5 repos and a 30-min cron, the actual budget is ~24 calls/hr — well under the 5000/hr cap. Per-repo gating adds state + complexity for no real budget benefit at v0.1 scale.
+- **Trade-off:** GitHub revises traffic counts within the rolling 14-day window; running every 30 min means we capture revisions sooner. Consider this a feature, not waste.
+
+### D44 — `/stats/contributors` 202 → `StatsNotReady` → skip-this-sync
+- **Why:** GitHub computes contributor stats asynchronously and returns HTTP 202 + empty body while warming. Our client raises a typed `StatsNotReady`; sync catches it, logs at INFO, returns 0. Next sync gets the cached result (typically within minutes for active repos; longer for low-activity ones).
+- **Verified live:** the user's repos all 202'd on the first call. Sync didn't crash — it persisted 0 contributors and moved on. Documented as expected behavior.
+
+### D45 — Tab order on repo detail: Overview · PRs · Issues · Releases · Contributors
+- **Why:** matches the original spec/03 order and the order most maintainers think in (mine, what's coming in, what's broken, what shipped, who built it).
+- **Trade-off:** Releases tab is now mostly a deep-link to the Releases page (full draft-notes flow lives there); we keep the tab for navigation completeness.
+
+### D46 — `/api/repos` payload includes `stars_30d: int[]` length-30 always
+- **Options:** (A) Per-repo sparkline endpoint (N+1 from the wall), (B) Single endpoint embeds the data
+- **Choice:** B
+- **Why:** 30 ints × 30 repos ≈ 3.6 KB — negligible payload. Avoids client-side N+1 (one fetch per card). Implemented as one batched grouped query (`_stars_30d_by_repo`). Missing days fill via last-observation-carried-forward; leading 0s — frontend renders without gap-handling logic.

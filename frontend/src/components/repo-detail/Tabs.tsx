@@ -2,13 +2,14 @@
 
 import { cn } from "@/lib/utils";
 
-export type TabKey = "overview" | "pulls" | "issues" | "releases";
+export type TabKey = "overview" | "pulls" | "issues" | "releases" | "contributors";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "pulls", label: "PRs" },
   { key: "issues", label: "Issues" },
   { key: "releases", label: "Releases" },
+  { key: "contributors", label: "Contributors" },
 ];
 
 export function Tabs({

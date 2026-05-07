@@ -9,6 +9,14 @@ import httpx
 from .. import __version__
 
 
+class StatsNotReady(Exception):
+    """GitHub returned 202 — its async stats job is still computing.
+
+    Caller should skip this sync's contributors fetch and try again next
+    time. Raised by `get_repo_contributors_stats`.
+    """
+
+
 class GitHubClient:
     """Async wrapper around the GitHub REST API.
 
@@ -182,6 +190,48 @@ class GitHubClient:
                     continue
                 yield item
             next_url = self._next_page_url(response)
+
+    async def get_repo_traffic_views(
+        self, owner: str, name: str
+    ) -> dict[str, Any]:
+        """Last 14 days of view counts (one call, returns aggregated payload)."""
+        response = await self._get(f"/repos/{owner}/{name}/traffic/views")
+        data: dict[str, Any] = response.json()
+        return data
+
+    async def get_repo_traffic_clones(
+        self, owner: str, name: str
+    ) -> dict[str, Any]:
+        """Last 14 days of clone counts."""
+        response = await self._get(f"/repos/{owner}/{name}/traffic/clones")
+        data: dict[str, Any] = response.json()
+        return data
+
+    async def get_repo_contributors_stats(
+        self, owner: str, name: str
+    ) -> list[dict[str, Any]]:
+        """Per-author commit history (heavyweight; cached server-side).
+
+        GitHub returns HTTP 202 + empty body on the first request while
+        it computes. We translate that into `StatsNotReady` so the caller
+        can skip cleanly and try next sync.
+        """
+        path = f"/repos/{owner}/{name}/stats/contributors"
+        # We bypass our normal _get's raise_for_status because 202 isn't an
+        # error here, it's a known protocol signal.
+        response = await self._client.get(path)
+        self.api_calls += 1
+        remaining = response.headers.get("x-ratelimit-remaining")
+        if remaining is not None:
+            self.rate_limit_remaining = int(remaining)
+        if response.status_code == 202:
+            raise StatsNotReady(f"contributors stats still computing for {owner}/{name}")
+        response.raise_for_status()
+        body = response.json()
+        # Empty body has been reported on some repos; default to []
+        if not isinstance(body, list):
+            return []
+        return body
 
     async def list_repo_releases(
         self,

@@ -130,6 +130,12 @@ def make_github_handler(
             return _resp(pulls)
         if path.endswith("/issues"):
             return _resp(issues)
+        if path.endswith("/traffic/views"):
+            return _resp({"count": 0, "uniques": 0, "views": []})
+        if path.endswith("/traffic/clones"):
+            return _resp({"count": 0, "uniques": 0, "clones": []})
+        if path.endswith("/stats/contributors"):
+            return _resp([])
         return httpx.Response(404, json={"message": "not stubbed"})
 
     return handler

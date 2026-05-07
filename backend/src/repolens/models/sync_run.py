@@ -30,6 +30,12 @@ class SyncRun(Base):
     releases_synced: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    traffic_days_synced: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    contributors_synced: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     api_calls: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )

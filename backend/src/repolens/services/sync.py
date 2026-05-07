@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select, update
@@ -10,9 +10,19 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
-from ..models import Issue, PullRequest, Release, Repo, SyncRun, User
+from ..models import (
+    Contributor,
+    Issue,
+    PullRequest,
+    Release,
+    Repo,
+    StarsDaily,
+    SyncRun,
+    TrafficDaily,
+    User,
+)
 from .auth import resolve_pat
-from .github_client import GitHubClient
+from .github_client import GitHubClient, StatsNotReady
 from .inbox_builder import rebuild_inbox_items
 
 log = logging.getLogger(__name__)
@@ -30,6 +40,12 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
     parsed: datetime = datetime.fromisoformat(value)
     return parsed
+
+
+def _iso_date(value: str | None) -> date | None:
+    """Parse a GitHub ISO timestamp into the UTC date component."""
+    parsed = _parse_iso(value)
+    return parsed.date() if parsed is not None else None
 
 
 def _derive_pr_state(gh_pr: dict[str, Any]) -> str:
@@ -223,6 +239,163 @@ async def _upsert_release(
     await db.execute(stmt)
 
 
+async def sync_traffic_for_repo(
+    db: AsyncSession, github: GitHubClient, repo: Repo
+) -> int:
+    """Pull GitHub's last-14-days views + clones, upsert one row per (repo, day).
+
+    Returns the number of distinct days touched. Idempotent: re-syncing
+    the rolling window updates existing rows (GitHub revises counts as
+    new events arrive) and inserts new days on the leading edge.
+    """
+    views_payload = await github.get_repo_traffic_views(repo.owner, repo.name)
+    clones_payload = await github.get_repo_traffic_clones(repo.owner, repo.name)
+
+    by_day: dict[date, dict[str, int]] = {}
+    for entry in views_payload.get("views") or []:
+        d = _iso_date(entry.get("timestamp"))
+        if d is None:
+            continue
+        by_day.setdefault(d, {"views": 0, "unique_views": 0, "clones": 0, "unique_clones": 0})
+        by_day[d]["views"] = int(entry.get("count", 0))
+        by_day[d]["unique_views"] = int(entry.get("uniques", 0))
+    for entry in clones_payload.get("clones") or []:
+        d = _iso_date(entry.get("timestamp"))
+        if d is None:
+            continue
+        by_day.setdefault(d, {"views": 0, "unique_views": 0, "clones": 0, "unique_clones": 0})
+        by_day[d]["clones"] = int(entry.get("count", 0))
+        by_day[d]["unique_clones"] = int(entry.get("uniques", 0))
+
+    if not by_day:
+        return 0
+
+    now = datetime.now(UTC)
+    rows = [
+        {
+            "repo_id": repo.id,
+            "day": day,
+            "views": vals["views"],
+            "unique_views": vals["unique_views"],
+            "clones": vals["clones"],
+            "unique_clones": vals["unique_clones"],
+            "synced_at": now,
+        }
+        for day, vals in by_day.items()
+    ]
+    stmt = insert(TrafficDaily).values(rows)
+    update_payload = {
+        col: getattr(stmt.excluded, col)
+        for col in ("views", "unique_views", "clones", "unique_clones", "synced_at")
+    }
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["repo_id", "day"], set_=update_payload
+    )
+    await db.execute(stmt)
+    return len(rows)
+
+
+async def sync_stars_snapshot_for_repo(
+    db: AsyncSession, repo: Repo
+) -> None:
+    """Snapshot today's stargazer count from the already-synced repo row.
+
+    No additional API call: `repo.stars` was set when /user/repos was
+    fetched at the top of run_full_sync. Idempotent on (repo_id, day).
+    """
+    today = datetime.now(UTC).date()
+    stmt = (
+        insert(StarsDaily)
+        .values(repo_id=repo.id, day=today, stars_total=repo.stars)
+        .on_conflict_do_update(
+            index_elements=["repo_id", "day"],
+            set_={"stars_total": repo.stars, "synced_at": datetime.now(UTC)},
+        )
+    )
+    await db.execute(stmt)
+
+
+def parse_contributor_stats(
+    stats: list[dict[str, Any]], *, recent_weeks: int = 13
+) -> list[dict[str, Any]]:
+    """Pure transform: GitHub /stats/contributors → list of contributor rows.
+
+    Sums commits over the last `recent_weeks` weeks (≈90 days at 13).
+    Skips entries with no author login. The `last_commit_at` is the
+    most recent week with a non-zero commit count, converted from the
+    Unix timestamp GitHub returns. Pure for testability.
+    """
+    parsed: list[dict[str, Any]] = []
+    for entry in stats:
+        author = entry.get("author") or {}
+        login = author.get("login")
+        if not login:
+            continue
+        weeks = entry.get("weeks") or []
+        recent = weeks[-recent_weeks:]
+        commits_total = sum(int(w.get("c", 0)) for w in recent)
+        last_active_ts = max(
+            (int(w.get("w", 0)) for w in recent if w.get("c")), default=0
+        )
+        last_commit_at: datetime | None = (
+            datetime.fromtimestamp(last_active_ts, tz=UTC) if last_active_ts else None
+        )
+        parsed.append(
+            {
+                "github_login": login,
+                "avatar_url": author.get("avatar_url"),
+                "commits_total": commits_total,
+                "last_commit_at": last_commit_at,
+            }
+        )
+    return parsed
+
+
+async def sync_contributors_for_repo(
+    db: AsyncSession, github: GitHubClient, repo: Repo
+) -> int:
+    """Pull /stats/contributors, sum last 13 weeks of commits per author, upsert.
+
+    Returns the count of contributor rows persisted. Returns 0 (no error)
+    when GitHub answers 202 — the cache is still warming and we'll get
+    real data on the next sync.
+    """
+    try:
+        stats = await github.get_repo_contributors_stats(repo.owner, repo.name)
+    except StatsNotReady:
+        log.info("contributors stats not ready for %s; will retry next sync", repo.full_name)
+        return 0
+
+    parsed = parse_contributor_stats(stats)
+    if not parsed:
+        return 0
+
+    now = datetime.now(UTC)
+    rows = [
+        {
+            "id": uuid.uuid4(),
+            "repo_id": repo.id,
+            "github_login": entry["github_login"],
+            "avatar_url": entry["avatar_url"],
+            "commits_total": entry["commits_total"],
+            "last_commit_at": entry["last_commit_at"],
+            "synced_at": now,
+        }
+        for entry in parsed
+    ]
+
+    stmt = insert(Contributor).values(rows)
+    update_payload = {
+        col: getattr(stmt.excluded, col)
+        for col in ("avatar_url", "commits_total", "last_commit_at", "synced_at")
+    }
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["repo_id", "github_login"], set_=update_payload
+    )
+    await db.execute(stmt)
+    return len(rows)
+
+
 async def sync_releases_for_repo(
     db: AsyncSession, github: GitHubClient, repo: Repo
 ) -> int:
@@ -313,10 +486,15 @@ async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
         pulls_synced = 0
         issues_synced = 0
         releases_synced = 0
+        traffic_days_synced = 0
+        contributors_synced = 0
         for repo in tracked_repos:
             pulls_synced += await sync_pulls_for_repo(db, github, repo, since=since_floor)
             issues_synced += await sync_issues_for_repo(db, github, repo, since=since_floor)
             releases_synced += await sync_releases_for_repo(db, github, repo)
+            traffic_days_synced += await sync_traffic_for_repo(db, github, repo)
+            await sync_stars_snapshot_for_repo(db, repo)
+            contributors_synced += await sync_contributors_for_repo(db, github, repo)
             await db.commit()  # per-repo commits = bounded loss on mid-sync failure
 
         # Step 3: rebuild Inbox derived table. Inside the success path so
@@ -333,6 +511,8 @@ async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
                 pulls_synced=pulls_synced,
                 issues_synced=issues_synced,
                 releases_synced=releases_synced,
+                traffic_days_synced=traffic_days_synced,
+                contributors_synced=contributors_synced,
                 api_calls=github.api_calls,
                 rate_limit_remaining=github.rate_limit_remaining,
                 finished_at=datetime.now(UTC),

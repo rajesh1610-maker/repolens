@@ -1,8 +1,16 @@
 import { Star, GitFork, GitBranch, Lock } from "lucide-react";
-import type { RepoSummary } from "@/lib/api";
+import type { RepoSummary, TrafficResponse } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
+import { Sparkline } from "@/components/charts/Sparkline";
+import { TrafficChart } from "@/components/charts/TrafficChart";
 
-export function OverviewPanel({ repo }: { repo: RepoSummary }) {
+export function OverviewPanel({
+  repo,
+  traffic,
+}: {
+  repo: RepoSummary;
+  traffic: TrafficResponse | null;
+}) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -10,6 +18,40 @@ export function OverviewPanel({ repo }: { repo: RepoSummary }) {
         <StatCard label="Forks" value={repo.forks} icon={<GitFork size={14} />} />
         <StatCard label="Open PRs" value={repo.open_pulls_count} />
         <StatCard label="Open issues" value={repo.open_issues_real_count} />
+      </div>
+
+      {/* Traffic chart (28-day) */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold">Traffic — last 28 days</h3>
+          {traffic && (
+            <div className="text-xs text-zinc-500 tabular-nums">
+              {traffic.totals.views} views · {traffic.totals.unique_views_max} peak unique
+            </div>
+          )}
+        </div>
+        <TrafficChart
+          series={traffic?.series ?? []}
+          className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3"
+        />
+      </div>
+
+      {/* Stars history (30-day sparkline) */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold">Stars — last 30 days</h3>
+          <div className="text-xs text-zinc-500">
+            current: <span className="text-zinc-300 tabular-nums">{repo.stars}</span>
+          </div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+          <Sparkline
+            data={repo.stars_30d ?? []}
+            width={680}
+            height={56}
+            className="text-teal-400 w-full"
+          />
+        </div>
       </div>
 
       {repo.description && (

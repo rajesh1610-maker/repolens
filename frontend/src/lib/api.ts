@@ -75,9 +75,43 @@ export type RepoSummary = {
   open_pulls_count: number;
   open_issues_real_count: number;
   merged_pulls_30d: number;
+  stars_30d: number[];
   pushed_at: string | null;
   tracked: boolean;
   synced_at: string | null;
+};
+
+export type TrafficPoint = {
+  day: string;
+  views: number;
+  unique_views: number;
+  clones: number;
+  unique_clones: number;
+};
+
+export type TrafficResponse = {
+  repo_full_name: string;
+  days: number;
+  series: TrafficPoint[];
+  totals: {
+    views: number;
+    unique_views_max: number;
+    clones: number;
+    unique_clones_max: number;
+  };
+};
+
+export type ContributorRow = {
+  id: string;
+  github_login: string;
+  avatar_url: string | null;
+  commits_total: number;
+  last_commit_at: string | null;
+};
+
+export type ContributorsResponse = {
+  items: ContributorRow[];
+  total: number;
 };
 
 export type PullRequestRow = {
@@ -126,6 +160,9 @@ export type SyncRunSummary = {
   repos_synced: number;
   pulls_synced: number;
   issues_synced: number;
+  releases_synced?: number;
+  traffic_days_synced?: number;
+  contributors_synced?: number;
   api_calls: number;
   rate_limit_remaining: number | null;
   error: string | null;

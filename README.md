@@ -52,6 +52,15 @@ Solo and small-team OSS maintainers are the GitHub long tail. They juggle 5–30
 - **Auth:** GitHub OAuth (single-user mode for v0.1; multi-user later)
 - **Deploy:** Docker Compose; one-command self-host
 
+## Operational notes
+
+Sharp edges to be aware of while RepoLens is in active development. Phase 9
+will replace this with a proper self-host guide.
+
+- **After editing `backend/.env`, restart the backend.** Settings are loaded
+  once at process startup; `uvicorn --reload` reloads on Python source
+  changes but not on `.env` changes.
+
 ## Specs
 
 1. [Vision & MVP scope](specs/01_vision_and_mvp.md)

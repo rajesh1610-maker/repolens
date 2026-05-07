@@ -27,6 +27,9 @@ class SyncRun(Base):
     issues_synced: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    releases_synced: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     api_calls: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )

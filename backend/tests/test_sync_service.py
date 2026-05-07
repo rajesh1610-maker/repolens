@@ -107,12 +107,14 @@ def make_github_handler(
     *,
     pulls: list[dict[str, Any]] | None = None,
     issues: list[dict[str, Any]] | None = None,
+    releases: list[dict[str, Any]] | None = None,
     repos: list[dict[str, Any]] | None = None,
     user: dict[str, Any] | None = None,
 ):
     """Build a MockTransport handler that serves the standard sync endpoints."""
     pulls = pulls if pulls is not None else [_gh_pr()]
     issues = issues if issues is not None else [_gh_issue()]
+    releases = releases if releases is not None else []
     repos = repos if repos is not None else [_gh_repo()]
     user = user if user is not None else _gh_user()
 
@@ -122,6 +124,8 @@ def make_github_handler(
             return _resp(user, headers={"x-ratelimit-remaining": "4998"})
         if path == "/user/repos":
             return _resp(repos)
+        if path.endswith("/releases"):
+            return _resp(releases)
         if path.endswith("/pulls"):
             return _resp(pulls)
         if path.endswith("/issues"):

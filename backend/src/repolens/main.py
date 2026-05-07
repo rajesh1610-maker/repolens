@@ -9,9 +9,11 @@ from . import __version__
 from .config import get_settings
 from .db import engine, get_db
 from .routers import inbox as inbox_router
+from .routers import releases as releases_router
 from .routers import repos as repos_router
 from .routers import settings as settings_router
 from .routers import sync as sync_router
+from .routers import triage as triage_router
 from .services.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -41,6 +43,8 @@ app.include_router(repos_router.router)
 app.include_router(settings_router.router)
 app.include_router(sync_router.router)
 app.include_router(inbox_router.router)
+app.include_router(triage_router.router)
+app.include_router(releases_router.router)
 
 
 @app.get("/healthz")

@@ -181,3 +181,18 @@ class GitHubClient:
                     continue
                 yield item
             next_url = self._next_page_url(response)
+
+    async def list_repo_releases(
+        self, owner: str, name: str, *, per_page: int = 30
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream releases for a repo, newest first.
+
+        Releases don't support a `since` query, but the count per repo is
+        usually small, and we cap at one page (per_page=30) for v0.1.
+        Drafts are returned by GitHub; we keep them with the `draft` flag.
+        """
+        response = await self._get(
+            f"/repos/{owner}/{name}/releases", params={"per_page": per_page}
+        )
+        for item in response.json():
+            yield item

@@ -29,6 +29,7 @@ def _serialize_run(run: SyncRun | None) -> dict[str, Any] | None:
         "repos_synced": run.repos_synced,
         "pulls_synced": run.pulls_synced,
         "issues_synced": run.issues_synced,
+        "releases_synced": run.releases_synced,
         "api_calls": run.api_calls,
         "rate_limit_remaining": run.rate_limit_remaining,
         "error": run.error,

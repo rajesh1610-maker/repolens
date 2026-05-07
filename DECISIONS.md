@@ -165,3 +165,35 @@ Append-only. Each entry: date, decision, options considered, choice, why.
 ### D29 — Hotkey scope: window-level, but skip when typing
 - **Choice:** `useHotkeys` listens on `window.keydown`, ignores events when target is INPUT/TEXTAREA/SELECT or contentEditable, and skips meta/ctrl/alt combos.
 - **Why:** Power users expect global keys (j/k/o) to work anywhere on the Inbox, but typing in a search box must not steal letters.
+
+---
+
+## 2026-05-07 — Test backfill mini-phase
+
+### D30 — Bugs caught by writing the missing tests
+- **Bug 1:** `run_full_sync` iterated *all* tracked repos system-wide rather than only the current user's. Single-user mode masked it; new tests with synthetic users surfaced cross-user fan-out. **Fix:** scope `select(Repo)` by `user_id`. (See diff at commit message of `1a9acc7`.)
+- **Bug 2:** `_upsert_user`'s `.returning(User)` returned a stale ORM instance after `ON CONFLICT DO UPDATE` — same SQLAlchemy 2.0 ORM-cache issue we fixed in `routers/settings.py::save_pat` during Phase 2. **Fix:** drop `.returning()`, do an explicit `select(...).execution_options(populate_existing=True)`. Pinned with a code comment.
+- **Lesson:** integration tests over the data layer pay for themselves immediately. Adding 20 tests caught two real bugs that the manual demo flow hadn't exercised.
+
+---
+
+## 2026-05-07 — Phase 6 (Triage + Releases)
+
+### D31 — Triage columns are mutually-discoverable, not mutually-exclusive
+- **Options:** (A) Each column owns its issues exclusively (e.g. assign each issue to exactly one bucket via priority order), (B) Each column queries independently — an issue can appear in multiple
+- **Choice:** B
+- **Why:** A 70-day-old issue with 5 reactions is genuinely both Stale *and* Hot. Forcing one bucket loses information. The frontend renders all three columns side-by-side; the human spots the overlap.
+
+### D32 — Release notes are template-generated in Phase 6, AI-polished in Phase 8
+- **Choice:** Phase 6 ships a deterministic template generator (`services/release_notes.py`) that categorizes by conventional-commit prefix or label and emits clean markdown. Phase 8 will optionally rewrite each section with Claude.
+- **Why:** Honest staging — the user gets value (copyable draft) without depending on Anthropic credits, and the AI step in Phase 8 has a baseline to improve on, not a blank page.
+- **Categories (priority order):** Breaking (💥) · Features (🚀) · Fixes (🐛) · Other (📝). Strippable prefixes drop from bullet text so headers carry the category.
+
+### D33 — Releases endpoint returns markdown, not structured sections
+- **Options:** (A) Return `{breaking: [], features: [], ...}` and let the frontend render, (B) Return one markdown string, frontend displays in a `<pre>`
+- **Choice:** B
+- **Why:** The user's atomic action is "copy this to a GitHub release form". Markdown is the unit they ship. Returning structured data and re-stringifying it on the client is a needless intermediate representation.
+
+### D34 — Stuck-label match is Python-side filter over a JSONB array
+- **Choice:** SQL filters to `Issue.labels != []` then Python iterates and case-insensitively matches against `STUCK_LABELS` set.
+- **Why:** Postgres jsonb-array containment via `?` operator works for exact case-sensitive match only. The "needs info" / "Needs Info" / "needs-info" reality of GitHub labels needs case-insensitive + space-vs-hyphen tolerant matching, which Python expresses cleanly. With v0.1 row counts the cost is invisible. Phase 9 polish: GIN index + `jsonb_array_elements_text()` + lower() for native containment if rows >10k.

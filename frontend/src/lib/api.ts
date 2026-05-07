@@ -177,6 +177,61 @@ export type InboxResponse = {
   };
 };
 
+export type TriageIssue = {
+  id: string;
+  repo_full_name: string;
+  repo_visibility: "public" | "private";
+  number: number;
+  title: string;
+  url: string;
+  author_login: string | null;
+  author_avatar_url: string | null;
+  labels: string[];
+  comments_count: number;
+  reactions_total: number;
+  updated_at: string | null;
+  created_at: string | null;
+};
+
+export type TriageResponse = {
+  stale: TriageIssue[];
+  hot: TriageIssue[];
+  stuck: TriageIssue[];
+};
+
+export type ReleaseOverviewItem = {
+  repo_id: string;
+  owner: string;
+  name: string;
+  full_name: string;
+  visibility: "public" | "private";
+  latest_tag: string | null;
+  latest_published_at: string | null;
+  unreleased_pr_count: number;
+};
+
+export type ReleasesOverviewResponse = {
+  items: ReleaseOverviewItem[];
+};
+
+export type ReleaseDraftPull = {
+  number: number;
+  title: string;
+  labels: string[];
+  author_login: string | null;
+  merged_at: string | null;
+};
+
+export type ReleaseDraft = {
+  repo_full_name: string;
+  next_tag: string;
+  previous_tag: string | null;
+  previous_published_at: string | null;
+  pull_count: number;
+  pulls: ReleaseDraftPull[];
+  notes_markdown: string;
+};
+
 export type LastSyncResponse = {
   last_run: SyncRunSummary | null;
 };

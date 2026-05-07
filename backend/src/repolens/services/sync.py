@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
-from ..models import Issue, PullRequest, Repo, SyncRun, User
+from ..models import Issue, PullRequest, Release, Repo, SyncRun, User
 from .auth import resolve_pat
 from .github_client import GitHubClient
 from .inbox_builder import rebuild_inbox_items
@@ -193,6 +193,45 @@ async def _upsert_issue(
     await db.execute(stmt)
 
 
+async def _upsert_release(
+    db: AsyncSession, repo_id: uuid.UUID, gh_release: dict[str, Any], now: datetime
+) -> None:
+    payload = {
+        "tag_name": gh_release.get("tag_name", ""),
+        "name": gh_release.get("name"),
+        "published_at": _parse_iso(gh_release.get("published_at")),
+        "draft": bool(gh_release.get("draft", False)),
+        "prerelease": bool(gh_release.get("prerelease", False)),
+        "body_md": gh_release.get("body"),
+        "synced_at": now,
+    }
+    stmt = (
+        insert(Release)
+        .values(
+            id=uuid.uuid4(),
+            repo_id=repo_id,
+            github_id=gh_release["id"],
+            **payload,
+        )
+        .on_conflict_do_update(
+            index_elements=["github_id"],
+            set_=payload,
+        )
+    )
+    await db.execute(stmt)
+
+
+async def sync_releases_for_repo(
+    db: AsyncSession, github: GitHubClient, repo: Repo
+) -> int:
+    now = datetime.now(UTC)
+    count = 0
+    async for gh_rel in github.list_repo_releases(repo.owner, repo.name):
+        await _upsert_release(db, repo.id, gh_rel, now)
+        count += 1
+    return count
+
+
 async def sync_pulls_for_repo(
     db: AsyncSession,
     github: GitHubClient,
@@ -271,9 +310,11 @@ async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
 
         pulls_synced = 0
         issues_synced = 0
+        releases_synced = 0
         for repo in tracked_repos:
             pulls_synced += await sync_pulls_for_repo(db, github, repo, since=since_floor)
             issues_synced += await sync_issues_for_repo(db, github, repo, since=since_floor)
+            releases_synced += await sync_releases_for_repo(db, github, repo)
             await db.commit()  # per-repo commits = bounded loss on mid-sync failure
 
         # Step 3: rebuild Inbox derived table. Inside the success path so
@@ -289,6 +330,7 @@ async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
                 repos_synced=repos_synced,
                 pulls_synced=pulls_synced,
                 issues_synced=issues_synced,
+                releases_synced=releases_synced,
                 api_calls=github.api_calls,
                 rate_limit_remaining=github.rate_limit_remaining,
                 finished_at=datetime.now(UTC),

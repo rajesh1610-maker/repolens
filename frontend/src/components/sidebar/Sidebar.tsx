@@ -142,7 +142,7 @@ export default function Sidebar() {
         {syncError && (
           <div className="text-[10px] text-red-400 break-words">{syncError}</div>
         )}
-        <div className="text-[10px] text-zinc-600 pt-1">v0.1.0 · phase 3</div>
+        <div className="text-[10px] text-zinc-600 pt-1">v0.1.0</div>
       </div>
     </aside>
   );

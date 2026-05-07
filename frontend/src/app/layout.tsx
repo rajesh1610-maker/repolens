@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Sidebar from "@/components/sidebar/Sidebar";
+import { FirstRunWizard } from "@/components/wizard/FirstRunWizard";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,10 +16,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body>
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="flex-1 p-8 overflow-auto">{children}</main>
-        </div>
+        <FirstRunWizard>
+          <div className="flex min-h-screen">
+            <Sidebar />
+            <main className="flex-1 p-8 overflow-auto">{children}</main>
+          </div>
+        </FirstRunWizard>
       </body>
     </html>
   );

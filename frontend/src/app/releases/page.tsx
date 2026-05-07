@@ -27,14 +27,15 @@ export default function ReleasesPage() {
     try {
       const ov = await api<ReleasesOverviewResponse>("/api/releases");
       setOverview(ov);
-      // Default-select the repo with the most unreleased PRs (already sorted)
-      if (!selected && ov.items.length > 0) {
-        setSelected(ov.items[0]);
-      }
+      // Default-select the repo with the most unreleased PRs (already sorted).
+      // Functional setter avoids putting `selected` in the dep list — that
+      // dependency would force loadOverview to be re-created (and the effect
+      // to refire) on every selection click.
+      setSelected((prev) => prev ?? ov.items[0] ?? null);
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : String(e));
     }
-  }, [selected]);
+  }, []);
 
   const loadDraft = useCallback(async () => {
     if (!selected) {

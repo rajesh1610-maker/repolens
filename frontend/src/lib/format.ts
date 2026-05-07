@@ -9,6 +9,14 @@ export function timeAgo(iso: string | null | undefined): string {
   const ts = new Date(iso).getTime();
   if (Number.isNaN(ts)) return "never";
   const diff = Date.now() - ts;
+  // Future timestamps (clock skew, scheduled releases) — show the
+  // absolute date rather than a nonsensical negative "in -3d ago".
+  if (diff < 0) {
+    return new Date(ts).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
   const sec = Math.round(diff / 1000);
   if (sec < 30) return "just now";
   if (sec < 60) return `${sec}s ago`;

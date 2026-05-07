@@ -14,7 +14,7 @@ import uuid
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,12 +122,13 @@ async def get_latest(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
 
 @router.get("")
 async def get_list(
-    limit: int = 20, db: AsyncSession = Depends(get_db)
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     user = await get_current_user(db)
     if user is None:
         return {"items": [], "limit": limit}
-    items = await list_digests(db, user, limit=max(1, min(limit, 100)))
+    items = await list_digests(db, user, limit=limit)
     return {
         "items": [_serialize(d) for d in items],
         "limit": limit,

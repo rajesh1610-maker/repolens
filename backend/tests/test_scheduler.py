@@ -16,6 +16,7 @@ from sqlalchemy import delete, insert
 from repolens.db import SessionLocal
 from repolens.models import SyncRun
 from repolens.services.sync import (
+    _acquire_sync_slot,
     is_sync_running,
     reap_stale_running_runs,
 )
@@ -76,3 +77,46 @@ async def test_no_running_runs_returns_false() -> None:
         # The dev DB might already have completed runs; no `running` ones.
         await reap_stale_running_runs(db)
         assert await is_sync_running(db) is False
+
+
+# ---------- D20 TOCTOU regression -----------
+
+
+@pytest.mark.asyncio
+async def test_acquire_returns_id_when_no_running_run() -> None:
+    """Slot acquisition succeeds with a fresh state."""
+    async with SessionLocal() as db:
+        await reap_stale_running_runs(db)
+        acquired = await _acquire_sync_slot(db)
+    assert acquired is not None
+    await _cleanup(acquired)
+
+
+@pytest.mark.asyncio
+async def test_acquire_returns_none_when_running_row_exists() -> None:
+    """If a running row sits inside the watchdog window, the second
+    caller gets None — the atomic INSERT...WHERE NOT EXISTS makes
+    this race-free, closing D20.
+    """
+    blocking = await _insert_run(datetime.now(UTC) - timedelta(minutes=2))
+    try:
+        async with SessionLocal() as db:
+            second = await _acquire_sync_slot(db)
+        assert second is None
+    finally:
+        await _cleanup(blocking)
+
+
+@pytest.mark.asyncio
+async def test_acquire_succeeds_after_stale_row_reaped() -> None:
+    """A stale 'running' row (older than watchdog) does NOT block
+    acquisition because _acquire_sync_slot reaps first.
+    """
+    stale = await _insert_run(datetime.now(UTC) - timedelta(minutes=30))
+    try:
+        async with SessionLocal() as db:
+            acquired = await _acquire_sync_slot(db)
+        assert acquired is not None
+        await _cleanup(acquired)
+    finally:
+        await _cleanup(stale)

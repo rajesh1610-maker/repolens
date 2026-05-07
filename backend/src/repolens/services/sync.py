@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -445,7 +445,12 @@ async def sync_issues_for_repo(
     return count
 
 
-async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
+async def run_full_sync(
+    db: AsyncSession,
+    github: GitHubClient,
+    *,
+    sync_run_id: uuid.UUID | None = None,
+) -> SyncRun:
     """Top-level orchestration. Runs the full pipeline and records a SyncRun.
 
     Order:
@@ -455,12 +460,21 @@ async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
 
     `since` is the started_at of the most recent successful run, or
     `now - INITIAL_SYNC_LOOKBACK` on the very first sync.
+
+    `sync_run_id`: when caller already reserved the slot (the path
+    `attempt_sync` takes after a TOCTOU-safe atomic INSERT), pass it
+    in and we update that row instead of inserting a new one. When
+    omitted (CLI / tests calling run_full_sync directly), we acquire
+    a slot ourselves the same way attempt_sync does.
     """
-    sync_run = SyncRun(status="running")
-    db.add(sync_run)
-    await db.commit()
-    await db.refresh(sync_run)
-    sync_run_id = sync_run.id
+    if sync_run_id is None:
+        acquired = await _acquire_sync_slot(db)
+        if acquired is None:
+            raise SyncBusy("a sync is already running")
+        sync_run_id = acquired
+    sync_run = (
+        await db.execute(select(SyncRun).where(SyncRun.id == sync_run_id))
+    ).scalar_one()
 
     since_floor = (
         await _last_successful_sync_started_at(db)
@@ -580,10 +594,62 @@ async def reap_stale_running_runs(db: AsyncSession) -> int:
 
 
 async def is_sync_running(db: AsyncSession) -> bool:
-    """True if a SyncRun is still 'running' AND within the watchdog window."""
+    """Read-only: True if a 'running' row sits inside the watchdog window.
+
+    Used by the API to surface "a sync is in flight" to the UI. Does
+    NOT acquire a slot. Use `_acquire_sync_slot` (via `attempt_sync`)
+    when you actually want to start a sync.
+    """
     await reap_stale_running_runs(db)
     stmt = select(SyncRun.id).where(SyncRun.status == "running").limit(1)
     return (await db.execute(stmt)).scalar_one_or_none() is not None
+
+
+async def _acquire_sync_slot(db: AsyncSession) -> uuid.UUID | None:
+    """Atomically reserve the sync slot. Returns the new sync_run_id, or None.
+
+    Closes the D20 TOCTOU window: the previous "check is_sync_running,
+    then INSERT a row" had a millisecond-wide race where two concurrent
+    callers could both pass the check before either wrote a row. Postgres
+    `INSERT ... SELECT ... WHERE NOT EXISTS ... RETURNING id` collapses
+    those two steps into a single atomic statement: the row is inserted
+    iff no other 'running' row sits inside the watchdog window. If one
+    does, the SELECT returns zero rows and INSERT inserts nothing — the
+    second caller gets None and the API surfaces SyncBusy.
+
+    We still reap stale rows first so a long-dead 'running' row from a
+    crashed process can't permanently block new syncs.
+    """
+    await reap_stale_running_runs(db)
+    settings = get_settings()
+    cutoff = datetime.now(UTC) - timedelta(minutes=settings.sync_watchdog_minutes)
+    new_id = uuid.uuid4()
+    stmt = text(
+        """
+        INSERT INTO sync_runs (
+            id, status, started_at,
+            repos_synced, pulls_synced, issues_synced,
+            releases_synced, traffic_days_synced, contributors_synced,
+            api_calls
+        )
+        SELECT
+            :id, 'running', NOW(),
+            0, 0, 0,
+            0, 0, 0,
+            0
+        WHERE NOT EXISTS (
+            SELECT 1 FROM sync_runs
+            WHERE status = 'running' AND started_at >= :cutoff
+        )
+        RETURNING id
+        """
+    )
+    result = await db.execute(stmt, {"id": new_id, "cutoff": cutoff})
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    await db.commit()
+    return new_id
 
 
 async def attempt_sync(db: AsyncSession) -> SyncRun:
@@ -595,12 +661,13 @@ async def attempt_sync(db: AsyncSession) -> SyncRun:
         ValueError: no PAT configured anywhere.
         Exception: GitHub or DB failure (already recorded on the SyncRun row).
     """
-    if await is_sync_running(db):
-        raise SyncBusy("a sync is already running")
-
-    pat = await resolve_pat(db)  # may raise CryptoError
+    pat = await resolve_pat(db)  # may raise CryptoError; cheaper before DB write
     if not pat:
         raise ValueError("no PAT configured")
 
+    sync_run_id = await _acquire_sync_slot(db)
+    if sync_run_id is None:
+        raise SyncBusy("a sync is already running")
+
     async with GitHubClient(token=pat) as github:
-        return await run_full_sync(db, github)
+        return await run_full_sync(db, github, sync_run_id=sync_run_id)

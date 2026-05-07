@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import __version__
 from .config import get_settings
 from .db import engine, get_db
+from .routers import inbox as inbox_router
 from .routers import repos as repos_router
 from .routers import settings as settings_router
 from .routers import sync as sync_router
@@ -39,6 +40,7 @@ app.add_middleware(
 app.include_router(repos_router.router)
 app.include_router(settings_router.router)
 app.include_router(sync_router.router)
+app.include_router(inbox_router.router)
 
 
 @app.get("/healthz")

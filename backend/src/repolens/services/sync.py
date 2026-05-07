@@ -13,6 +13,7 @@ from ..config import get_settings
 from ..models import Issue, PullRequest, Repo, SyncRun, User
 from .auth import resolve_pat
 from .github_client import GitHubClient
+from .inbox_builder import rebuild_inbox_items
 
 log = logging.getLogger(__name__)
 
@@ -253,6 +254,11 @@ async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
             pulls_synced += await sync_pulls_for_repo(db, github, repo, since=since_floor)
             issues_synced += await sync_issues_for_repo(db, github, repo, since=since_floor)
             await db.commit()  # per-repo commits = bounded loss on mid-sync failure
+
+        # Step 3: rebuild Inbox derived table. Inside the success path so
+        # a failed sync never wipes out a working Inbox.
+        await rebuild_inbox_items(db, user.id)
+        await db.commit()
 
         await db.execute(
             update(SyncRun)

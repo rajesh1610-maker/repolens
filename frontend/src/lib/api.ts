@@ -136,6 +136,47 @@ export type RecentRunsResponse = {
   limit: number;
 };
 
+export type InboxKind = "pr" | "issue";
+
+export type InboxRow = {
+  id: string;
+  kind: InboxKind;
+  source_id: string;
+  repo_id: string;
+  repo_full_name: string;
+  repo_visibility: "public" | "private";
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  draft: boolean;
+  author_login: string | null;
+  author_avatar_url: string | null;
+  labels: string[];
+  reactions_total: number;
+  comments_count: number;
+  priority_score_static: number;
+  total_score: number;
+  is_review_request: boolean;
+  is_mention: boolean;
+  is_needs_response: boolean;
+  is_stale: boolean;
+  last_activity_at: string | null;
+};
+
+export type InboxResponse = {
+  items: InboxRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  facets: {
+    all: number;
+    pr: number;
+    issue: number;
+    with_reactions: number;
+  };
+};
+
 export type LastSyncResponse = {
   last_run: SyncRunSummary | null;
 };

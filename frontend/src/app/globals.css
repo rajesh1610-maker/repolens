@@ -12,3 +12,15 @@ body {
   color: #f4f4f5;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+
+.kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  line-height: 14px;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 3px;
+  color: #d4d4d8;
+}

@@ -130,3 +130,38 @@ Append-only. Each entry: date, decision, options considered, choice, why.
 ### D23 — CLI command rename (4a)
 - **Choice:** `repolens sync-repos` → `repolens sync`. The command now syncs repos + PRs + issues; the old name was misleading.
 - **Migration cost:** zero — only the user has run this and only during dev demos. No README mentions the old name.
+
+---
+
+## 2026-05-07 — Phase 5 (Inbox + priority scoring)
+
+### D24 — Priority is split: stored static + query-time temporal
+- **Options:**
+  - (A) Store the full priority including time decay, recompute every minute via cron
+  - (B) Store atemporal priority on `inbox_items.priority_score`; compute time decay in the SQL `ORDER BY`
+- **Choice:** B
+- **Why:** Postgres generated columns can't reference `now()` (must be deterministic per row). Recomputing every minute would burn cycles for no user benefit. Splitting the score keeps stored data immutable until the next sync, while ranking stays always-fresh.
+- **How to apply:** `services/priority.py` exposes `static_priority(item)` and `total_score(static, last_activity_at, now)`. SQL mirror in `routers/inbox.py` uses the same constants — both are pinned by `tests/test_priority.py`.
+
+### D25 — Phase 5 priority signals are the *honest* atemporal subset
+- **Spec calls for** `is_review_request`, `is_mention`, `is_needs_response` weights. We don't yet sync the data those depend on (requested_reviewers, comment bodies, comment timeline).
+- **Choice:** Phase 5 ships with `0.5 * reactions_total - 10 * is_draft_pr + 5 * has_boost_label` only. The `is_review_request` / `is_mention` / `is_needs_response` / `is_stale` columns exist on `inbox_items` but are always `false` until Phase 6+.
+- **Why:** Don't fake signals. Pre-allocating the columns means Phase 6 lights them up without a schema migration.
+
+### D26 — Inbox = open items only
+- **Options:** (A) include all items with state filter at query time, (B) hard-filter to state='open' at builder time
+- **Choice:** B
+- **Why:** Closed/merged items are *done*, they don't belong in a "what needs me" view. Builder-time filter keeps `inbox_items` small and queries fast.
+- **How to apply:** `inbox_builder.rebuild_inbox_items` joins with `state='open'` predicate.
+
+### D27 — Public-only filter applied at query time, not builder time
+- **Consistency with D16:** Builder always inserts every tracked-open item including private ones. Query-time `WHERE repo_visibility = 'public'` (when `users.public_only_mode`) hides them. Toggle stays instant; no rebuild on flip.
+
+### D28 — Boost labels are case-insensitive, whitespace-tolerant
+- **Choice:** `"Good First Issue"`, `"good first issue"`, `"  HELP wanted  "` all match.
+- **Why:** GitHub label conventions vary across repos. Defensive matching reduces silent misses.
+- **How to apply:** `services/priority._has_boost_label` lowercases + strips before set-membership check.
+
+### D29 — Hotkey scope: window-level, but skip when typing
+- **Choice:** `useHotkeys` listens on `window.keydown`, ignores events when target is INPUT/TEXTAREA/SELECT or contentEditable, and skips meta/ctrl/alt combos.
+- **Why:** Power users expect global keys (j/k/o) to work anywhere on the Inbox, but typing in a search box must not steal letters.

@@ -54,6 +54,15 @@ async def _last_successful_sync_started_at(db: AsyncSession) -> datetime | None:
 
 
 async def _upsert_user(db: AsyncSession, gh_user: dict[str, Any]) -> User:
+    """Upsert a user row keyed on github_id and return the fresh ORM instance.
+
+    Note: we deliberately do NOT use `.returning(User)` here — SQLAlchemy
+    2.0's ORM cache returns the originally-inserted instance after the
+    `ON CONFLICT DO UPDATE` path, which leaks stale field values to the
+    caller. We re-query with `populate_existing=True` so the in-session
+    instance reflects the post-upsert DB state. Same pattern guards
+    `routers/settings.py::save_pat`.
+    """
     stmt = (
         insert(User)
         .values(
@@ -71,10 +80,15 @@ async def _upsert_user(db: AsyncSession, gh_user: dict[str, Any]) -> User:
                 "avatar_url": gh_user.get("avatar_url"),
             },
         )
-        .returning(User)
     )
-    result = await db.execute(stmt)
-    return result.scalar_one()
+    await db.execute(stmt)
+    await db.flush()
+    select_stmt = (
+        select(User)
+        .where(User.github_id == gh_user["id"])
+        .execution_options(populate_existing=True)
+    )
+    return (await db.execute(select_stmt)).scalar_one()
 
 
 async def _upsert_repo(
@@ -244,8 +258,15 @@ async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
             repos_synced += 1
         await db.commit()
 
-        # Step 2: PRs + issues for each tracked repo
-        result = await db.execute(select(Repo).where(Repo.tracked.is_(True)))
+        # Step 2: PRs + issues for each tracked repo *of this user*.
+        # The user_id filter matters once multi-user lands (and prevents
+        # cross-user fan-out in tests that create synthetic users).
+        result = await db.execute(
+            select(Repo).where(
+                Repo.user_id == user.id,
+                Repo.tracked.is_(True),
+            )
+        )
         tracked_repos = list(result.scalars().all())
 
         pulls_synced = 0

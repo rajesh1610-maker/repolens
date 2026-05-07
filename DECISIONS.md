@@ -68,3 +68,10 @@ Append-only. Each entry: date, decision, options considered, choice, why.
 - **Choice:** reuse a PAT the user already has, rather than generate a new fine-grained PAT scoped to RepoLens.
 - **Why:** user's call. Trade-off accepted: revoking that PAT for any reason will affect more than RepoLens. If RepoLens leaves the prototype phase, **regenerate as a fine-grained, RepoLens-scoped PAT** before publishing the self-host README.
 - **How to apply:** Phase 1 reads PAT from `GITHUB_PAT` env var (no encryption yet — that arrives in Phase 2). Don't commit the PAT; `.env` is in `.gitignore`.
+
+### D15 — Source the existing PAT from the `gh` CLI keychain
+- **Choice:** populated `backend/.env` `GITHUB_PAT=` with the token returned by `gh auth token` rather than asking the user to create one in the browser.
+- **Token scopes available:** `gist, read:org, repo, workflow` — sufficient for v0.1 (`repo` + `read:org` are the must-haves).
+- **Why:** zero browser friction; the cleanest interpretation of D14 ("existing PAT").
+- **Coupling implication:** if the user runs `gh auth refresh` or `gh auth logout` and gets a new token, RepoLens' `.env` will go stale. Document this in the README before public release.
+- **Verified working 2026-05-07:** `GET /user` returned `login: rajesh1610-maker, public_repos: 5`, rate limit `4998/5000`.

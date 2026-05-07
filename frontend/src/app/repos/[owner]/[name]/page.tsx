@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, AlertCircle, Star, GitFork } from "lucide-react";
 import {
@@ -22,15 +22,9 @@ type StateFilter = "all" | "open" | "closed" | "merged";
 export default function RepoDetailPage({
   params,
 }: {
-  params: { owner: string; name: string } | Promise<{ owner: string; name: string }>;
+  params: { owner: string; name: string };
 }) {
-  // Next 14 supports params as a sync object; tolerate both for forward-compat.
-  const resolved =
-    typeof (params as { then?: unknown }).then === "function"
-      ? // eslint-disable-next-line react-hooks/rules-of-hooks
-        use(params as Promise<{ owner: string; name: string }>)
-      : (params as { owner: string; name: string });
-  const { owner, name } = resolved;
+  const { owner, name } = params;
   const fullName = `${owner}/${name}`;
   const githubUrl = `https://github.com/${fullName}`;
 
@@ -75,6 +69,7 @@ export default function RepoDetailPage({
     }
   }, [owner, name, issuesState]);
 
+  // Initial load + sync-event refresh
   useEffect(() => {
     loadRepo();
     const handler = () => {
@@ -86,18 +81,12 @@ export default function RepoDetailPage({
     return () => window.removeEventListener(SYNC_EVENT, handler);
   }, [loadRepo, loadPulls, loadIssues, tab]);
 
-  useEffect(() => {
-    if (tab === "pulls" && !pulls) loadPulls();
-    if (tab === "issues" && !issues) loadIssues();
-  }, [tab, pulls, issues, loadPulls, loadIssues]);
-
-  // Re-fetch when filter changes
+  // Single effect handles tab activation and filter changes.
+  // The `if (tab === ...)` guards prevent loading when on a different tab.
   useEffect(() => {
     if (tab === "pulls") loadPulls();
-  }, [pullsState, tab, loadPulls]);
-  useEffect(() => {
     if (tab === "issues") loadIssues();
-  }, [issuesState, tab, loadIssues]);
+  }, [tab, pullsState, issuesState, loadPulls, loadIssues]);
 
   if (error) {
     return (

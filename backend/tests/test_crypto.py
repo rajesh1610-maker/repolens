@@ -6,7 +6,6 @@ picks it up. We clear the lru_cache between tests to keep cases isolated.
 
 from __future__ import annotations
 
-import os
 import secrets
 
 import pytest

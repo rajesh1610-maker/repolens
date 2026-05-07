@@ -7,6 +7,7 @@ required. Each test seeds the canned responses it needs.
 from __future__ import annotations
 
 import json
+from datetime import UTC
 
 import httpx
 import pytest
@@ -127,9 +128,9 @@ async def test_list_repo_pulls_walks_pages_and_stops_at_since() -> None:
         )
 
     transport = httpx.MockTransport(handler)
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    since = datetime(2026, 4, 14, tzinfo=timezone.utc)
+    since = datetime(2026, 4, 14, tzinfo=UTC)
     async with GitHubClient(token="t", transport=transport) as gh:
         prs = [
             p
@@ -152,15 +153,20 @@ async def test_list_repo_issues_filters_pull_requests_and_passes_since() -> None
         return _make_response(
             [
                 {"id": 100, "number": 1, "title": "real issue"},
-                {"id": 101, "number": 2, "title": "PR masquerading", "pull_request": {"url": "..."}},
+                {
+                    "id": 101,
+                    "number": 2,
+                    "title": "PR masquerading",
+                    "pull_request": {"url": "..."},
+                },
                 {"id": 102, "number": 3, "title": "another real issue"},
             ]
         )
 
     transport = httpx.MockTransport(handler)
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    since = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    since = datetime(2026, 5, 1, tzinfo=UTC)
     async with GitHubClient(token="t", transport=transport) as gh:
         issues = [i async for i in gh.list_repo_issues("a", "b", since=since)]
 

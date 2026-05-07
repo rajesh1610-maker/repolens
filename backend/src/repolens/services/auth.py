@@ -26,8 +26,8 @@ async def resolve_pat(db: AsyncSession) -> str | None:
         2. `GITHUB_PAT` env var (Phase 1 fallback)
         3. None — caller must error
     """
-    from .crypto import decrypt
     from ..config import get_settings
+    from .crypto import decrypt
 
     user = await get_current_user(db)
     if user is not None and user.pat_encrypted is not None:

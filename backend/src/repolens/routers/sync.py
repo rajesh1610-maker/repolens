@@ -63,11 +63,11 @@ async def trigger_sync(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     """Run a sync now. Returns 409 if one is already in flight."""
     try:
         run = await attempt_sync(db)
-    except SyncBusy:
+    except SyncBusy as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A sync is already running. Wait for it to finish or check the watchdog.",
-        )
+        ) from exc
     except CryptoError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -76,11 +76,11 @@ async def trigger_sync(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
                 f"Restore REPOLENS_ENCRYPTION_KEY or DELETE /api/settings/pat and re-save."
             ),
         ) from exc
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No PAT configured. Save one via Settings or set GITHUB_PAT in backend/.env.",
-        )
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

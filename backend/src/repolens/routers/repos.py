@@ -80,7 +80,11 @@ def _serialize_issue(issue: Issue) -> dict[str, Any]:
 async def _aggregate_counts_by_repo(
     db: AsyncSession,
 ) -> dict[uuid.UUID, dict[str, int]]:
-    """Return {repo_id: {open_pulls_count, open_issues_real_count, merged_pulls_30d}} in one round trip."""
+    """Return per-repo aggregate counts in one round trip.
+
+    Keyed by repo_id; values: open_pulls_count, open_issues_real_count,
+    merged_pulls_30d.
+    """
     thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
 
     pulls_q = select(

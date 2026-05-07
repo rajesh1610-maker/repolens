@@ -88,3 +88,45 @@ Append-only. Each entry: date, decision, options considered, choice, why.
   - Every list query joins `repos` and applies `(NOT :public_only_mode OR repos.visibility = 'public')`
   - The digest collector applies the same filter, so the AI never sees private repo names when public-only mode is on
 - **Documentation:** README has a top-level "Privacy & visibility" section (above "Why now"); spec/01 has a full Privacy & visibility model section; spec/03 documents the Settings UI. End users encounter this prominently before they install.
+
+---
+
+## 2026-05-07 — Phase 4 (PRs/issues + repo detail + scheduler)
+
+### D17 — Lazy per-tab fetching (4b)
+- **Options:** (A) one mega endpoint that bundles repo + pulls + issues, (B) one endpoint per resource, fetched on tab activation
+- **Choice:** B
+- **Why:** Overview tab shouldn't pay for hundreds of PR/issue rows it'll never show. Matches the existing "small focused endpoints" pattern (`/api/repos`, `/api/sync/last`).
+- **How to apply:** Detail page lazy-loads pulls/issues only when their tab is opened. Re-fetches on filter change and on the `repolens:synced` custom event.
+
+### D18 — PR/issue counts via grouped subquery on /api/repos (4b)
+- **Options:** (A) inline aggregate subqueries on the existing /api/repos, (B) new helper endpoint `/api/repos/counts`, (C) keep GitHub's mixed `open_issues_count`
+- **Choice:** A
+- **Why:** One round trip; cards already render once. The grouped query is cheap with the existing `ix_pulls_repo_state_updated` index.
+- **Caveat:** counts only reflect what's in the local DB (90-day floor on initial sync). Older never-touched open PRs won't appear. Acceptable for v0.1; worth a Phase 5 backfill if users complain.
+
+### D19 — Public-only mode → 404 on direct repo URL (4b)
+- **Options:** (A) 404, (B) 403 with explicit "hidden" payload, (C) 200 with empty tabs
+- **Choice:** A (with detail string)
+- **Why:** No information leak about whether a private repo exists. Single code path. Clean empty state for hot-linkers.
+
+### D20 — Sync slot guard via `running` row + watchdog (4c, D4 in design)
+- **Options:** (A) in-process asyncio.Lock, (B) Postgres advisory lock, (C) treat `SyncRun.status='running'` as the lock with a watchdog
+- **Choice:** C
+- **Why:** Simplest, observable in the existing admin view, survives restarts, works for both manual and scheduled triggers. The watchdog (default 15 min) reaps abandoned `running` rows so a crashed process can't deadlock the system.
+- **Known limitation (TOCTOU):** Two truly-concurrent calls to `attempt_sync` could both pass the `is_sync_running` check before either inserts a `running` row. Window is milliseconds; manual + 30-min cron in v0.1 don't realistically hit it. Phase 9 polish: switch to Postgres advisory lock or atomic `INSERT ... WHERE NOT EXISTS`.
+
+### D21 — Scheduler off by default in dev (4c, D5 in design)
+- **Options:** (A) always on, (B) skip when uvicorn `--reload` detected, (C) env-gated default false
+- **Choice:** C — `SCHEDULER_ENABLED` env var, default `false`
+- **Why:** uvicorn `--reload` restarts the process on every code change in dev → wasteful API quota. Explicit env flag avoids magic.
+- **How to apply:** docker-compose.prod.yml will set `SCHEDULER_ENABLED=true`. Local dev users who want the cron behavior set it manually.
+
+### D22 — In-memory APScheduler jobstore (4c, D6 in design)
+- **Choice:** `MemoryJobStore`, single fixed-cadence job rebuilt from env on startup.
+- **Why:** v0.1 has one job. SQLAlchemyJobStore is sync (awkward against our async stack) and persists nothing useful (cadence comes from env each restart).
+- **Reconsider when:** users start creating ad-hoc / per-repo sync schedules.
+
+### D23 — CLI command rename (4a)
+- **Choice:** `repolens sync-repos` → `repolens sync`. The command now syncs repos + PRs + issues; the old name was misleading.
+- **Migration cost:** zero — only the user has run this and only during dev demos. No README mentions the old name.

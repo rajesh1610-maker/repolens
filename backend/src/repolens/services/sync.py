@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..models import Issue, PullRequest, Repo, SyncRun, User
 from .auth import resolve_pat
-from .crypto import CryptoError
 from .github_client import GitHubClient
 
 log = logging.getLogger(__name__)

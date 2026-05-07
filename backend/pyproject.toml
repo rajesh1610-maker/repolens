@@ -51,6 +51,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "RUF"]
+# B008: FastAPI uses `Depends(get_db)` as a default — that's the documented idiom.
+# N818: we name domain exceptions after the condition (SyncBusy), not "...Error".
+ignore = ["B008", "N818"]
 
 [tool.mypy]
 python_version = "3.12"

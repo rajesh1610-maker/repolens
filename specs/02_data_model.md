@@ -75,7 +75,10 @@ Indexes: `(user_id, tracked)`, `full_name`.
 | raw | jsonb | full GitHub payload |
 | synced_at | timestamptz | |
 
-UNIQUE `(repo_id, number)`. Indexes on `(state, updated_at desc)`, `requested_reviewer_logins` (GIN).
+UNIQUE `(repo_id, number)`. Indexes on `(repo_id, state, updated_at desc)`. Labels stored as JSONB (not Postgres ARRAY).
+
+> **Phase 4a built columns:** `id`, `repo_id`, `github_id`, `number`, `title`, `state`, `draft`, `author_login`, `author_avatar_url`, `labels`, `created_at`, `updated_at`, `closed_at`, `merged_at`, `raw`, `synced_at`.
+> **Deferred (need extra REST or GraphQL calls):** `review_decision`, `requested_reviewer_logins`, `comments_count`, `additions`, `deletions`. These land in Phase 5+ as priority scoring needs them.
 
 ### `issues`
 Same shape as `pull_requests` minus PR-specific fields, plus:

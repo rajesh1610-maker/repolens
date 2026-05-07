@@ -75,3 +75,16 @@ Append-only. Each entry: date, decision, options considered, choice, why.
 - **Why:** zero browser friction; the cleanest interpretation of D14 ("existing PAT").
 - **Coupling implication:** if the user runs `gh auth refresh` or `gh auth logout` and gets a new token, RepoLens' `.env` will go stale. Document this in the README before public release.
 - **Verified working 2026-05-07:** `GET /user` returned `login: rajesh1610-maker, public_repos: 5`, rate limit `4998/5000`.
+
+### D16 — Public-only mode is a display filter, not a sync filter
+- **Options:**
+  - (A) On toggle, hard-stop syncing private repos and delete them from local DB
+  - (B) Always sync everything the PAT can see; have UI filter at query time via a `users.public_only_mode` flag
+- **Choice:** B
+- **Why:** toggling is instant and lossless. Private repo *data* never leaves the local Postgres regardless of the toggle, so the only "exposure" surface that matters is the UI itself — which the toggle fully covers. (A) would require destructive deletes and a re-sync to re-enable, both of which kill the use cases this feature exists for (recording demos, screen-shares, screenshots).
+- **How to apply:**
+  - Phase 1 sync stores `repos.visibility` (`public` | `private`) on every row
+  - Phase 2 Settings page adds the toggle, persisted on `users.public_only_mode` (default `false`)
+  - Every list query joins `repos` and applies `(NOT :public_only_mode OR repos.visibility = 'public')`
+  - The digest collector applies the same filter, so the AI never sees private repo names when public-only mode is on
+- **Documentation:** README has a top-level "Privacy & visibility" section (above "Why now"); spec/01 has a full Privacy & visibility model section; spec/03 documents the Settings UI. End users encounter this prominently before they install.

@@ -150,10 +150,11 @@ Most maintainers know they *should* ship more often but don't because writing no
 Single-page sectioned form:
 1. **GitHub connection** — PAT entry, scopes status, "Test connection" button
 2. **Tracked repos** — checklist of all your repos; check/uncheck to track. "Track all" / "Untrack all" shortcuts
-3. **AI** — Anthropic API key entry, model selector (Opus / Sonnet / Haiku), monthly budget cap
-4. **Digest** — schedule (day/time/timezone), enable/disable, recipients (just you in v0.1)
-5. **Sync** — frequency (15m / 30m / 1h / 4h), "Sync now" button, last 10 sync runs table
-6. **Danger zone** — wipe local data, re-init schema
+3. **Visibility** — `[ ] Public-only mode` toggle. When on, every page hides private repos. The section explains: *"Useful for screenshots, demos, and screen-shares. Toggling is instant and does not re-sync — your data stays put."* Counter shows e.g. *"Currently visible: 12 repos (4 private hidden)."*
+4. **AI** — Anthropic API key entry, model selector (Opus / Sonnet / Haiku), monthly budget cap
+5. **Digest** — schedule (day/time/timezone), enable/disable, recipients (just you in v0.1)
+6. **Sync** — frequency (15m / 30m / 1h / 4h), "Sync now" button, last 10 sync runs table
+7. **Danger zone** — wipe local data, re-init schema
 
 ---
 

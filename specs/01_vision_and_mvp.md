@@ -79,3 +79,47 @@ If any of those fails, the MVP isn't done.
 - **Don't replace bots.** Surface Dependabot output, don't compete with it.
 - **Don't build a notification engine in v0.1.** The web UI is the notification.
 - **Don't gate features behind accounts/billing.** This is OSS; self-hosted; the AI digest needs a user-supplied API key.
+
+## Privacy & visibility model
+
+A first-class concern, not a footnote. RepoLens is read-only against GitHub
+and runs entirely on the user's own machine — but several common situations
+need explicit handling.
+
+### Three layers of control
+
+1. **The token's scope.** RepoLens cannot see what the user's PAT cannot
+   see. A `public_repo`-only token will never expose private data; a `repo`
+   token will. Document scope choice prominently in the README and the
+   first-run wizard.
+2. **Per-repo tracking** (always available). Each visible repo has a
+   `tracked` flag in `repos`. Untracking a repo excludes it from sync, UI,
+   priority scoring, and the digest immediately.
+3. **Public-only mode** (global toggle). A single Settings toggle that
+   hides all private repos from every page. Implemented as a *display*
+   filter, not a sync filter — toggling it is instant and reversible
+   without re-syncing.
+
+### Why public-only mode is a display filter, not a sync filter
+
+- Toggling between modes is instant; no waiting for a re-sync
+- The user can record a demo / take screenshots / share a stream without
+  leaking private repo names, and flip back without losing data
+- One source of truth: the local DB always reflects everything the token
+  can see; the UI decides what to show
+
+### Defaults
+
+- All visible repos start as `tracked = true` after first sync
+- Public-only mode starts **off** (it's your dashboard; you presumably want
+  to see everything)
+- The first-run wizard surfaces both controls explicitly so the user makes
+  a deliberate choice before any data is rendered
+
+### What never leaves the machine
+
+- No telemetry, no analytics pings, no remote logging by default
+- No third-party calls except GitHub (always) and Anthropic (only when the
+  user generates a digest, with the user's own API key)
+- Postgres volume is the only stateful artifact — backup and rotate it
+  exactly as the user would any other private DB

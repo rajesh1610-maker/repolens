@@ -26,6 +26,56 @@ Rule of thumb: if a screen needs >3 REST calls to populate, write a GraphQL quer
 - Standard authorization code flow
 - Scopes same as PAT, but user-friendly consent screen
 
+## Repo visibility filter
+
+RepoLens *syncs* every repo the user's PAT can see; *display* is filtered separately. This split matters.
+
+### What gets synced
+
+`GET /user/repos?affiliation=owner,collaborator,organization_member&per_page=100`
+
+No `visibility` query param. The PAT's scope is the only gate — if the user
+gave a public-only token, GitHub returns only public repos. If they gave
+a `repo` token, both public and private come back. Each row gets a
+`visibility` column (`public` | `private`) populated from the response.
+
+### What gets displayed
+
+Two filters apply at query time on every page:
+
+```sql
+WHERE
+    repos.tracked = true
+AND (NOT :public_only_mode OR repos.visibility = 'public')
+```
+
+- `tracked` — per-repo toggle, defaults true on first import
+- `public_only_mode` — global Settings toggle, defaults false
+
+Both are stored in `users` (single-user mode). Toggling either is a
+no-sync operation; UI re-queries and the change is immediate.
+
+### Implications for downstream pages
+
+- **Inbox / Triage / Releases / Digest** — every list query joins to `repos`
+  and applies the same filter. No page can leak a private repo when
+  public-only mode is on.
+- **Repos wall** — same filter; cards for private repos disappear cleanly
+  when toggled.
+- **Digest input** — the collector excludes private repos when public-only
+  mode is on, so the AI never sees private repo names or stats in
+  public-only mode.
+
+### Why not just not-sync private repos when public-only is on?
+
+- Toggling would require a full re-sync (slow, wastes API quota)
+- Users frequently want public-only as a *temporary* mode (recording a demo,
+  pairing with someone over screen-share). Re-sync friction kills that flow.
+- A delete + re-add would lose history (e.g., star deltas, traffic accumulation)
+
+The cost is local: private repo metadata sits in the user's own Postgres.
+Acceptable for a self-hosted, single-user app.
+
 ## Sync strategy
 
 ### Frequency

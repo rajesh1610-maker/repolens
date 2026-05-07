@@ -23,6 +23,7 @@ The maintainer using the app. v0.1 supports one row, but schema is multi-user-re
 | avatar_url | text | |
 | pat_encrypted | bytea | GitHub PAT, AES-GCM, key from env |
 | anthropic_key_encrypted | bytea | for digest generation |
+| public_only_mode | bool | global UI filter; when true, private repos hidden from every page. Default false. |
 | created_at | timestamptz | |
 
 ### `repos`

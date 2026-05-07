@@ -16,6 +16,30 @@ GitHub gives you ten different screens for ten different things. RepoLens is one
 - **Release radar** — pending PRs vs. last release, draft release notes, "ready to ship?" check
 - **Self-hosted, single binary feel** — your data stays on your machine; bring your own GitHub PAT
 
+## 🔒 Privacy & visibility — read this first
+
+**RepoLens sees exactly what your GitHub token sees.** A token with the `repo`
+scope can read your private repos; a token without it cannot. Choose your
+token's scope deliberately.
+
+Two independent controls decide what shows up in the UI:
+
+| Control | Default | Where | Effect |
+|---|---|---|---|
+| **Per-repo tracking** | every visible repo on | Settings → Tracked repos | Untrack a repo to exclude it from sync, Inbox, wall, digest |
+| **Public-only mode** | off | Settings → Visibility | Hides every *private* repo from Inbox, Repos wall, Triage, Releases, and Digest in one click. Useful for screenshots, demos, recording streams |
+
+The data model is honest: every repo your token can see gets pulled into the
+local Postgres so toggles are instant — but **nothing about your private
+repos ever leaves your machine.** RepoLens has no telemetry, no cloud
+backend, and no third-party services beyond GitHub itself and (optionally)
+the Anthropic API for the weekly digest. The digest sender is your own key,
+and the prompt only includes the facts you've allowed in.
+
+If you're sharing screenshots of RepoLens publicly, flip on public-only
+mode in Settings — the entire UI then shows only what GitHub already shows
+the world.
+
 ## Why now
 
 Solo and small-team OSS maintainers are the GitHub long tail. They juggle 5–30 repos, each with its own sparse activity. GitHub's UI is repo-first; maintainers are person-first. RepoLens flips the axis.

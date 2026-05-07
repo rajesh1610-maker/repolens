@@ -64,7 +64,11 @@ export default function Sidebar() {
       await refresh();
       window.dispatchEvent(new CustomEvent(SYNC_EVENT));
     } catch (e) {
-      setSyncError(e instanceof ApiError ? e.detail : String(e));
+      if (e instanceof ApiError && e.status === 409) {
+        setSyncError("Already running…");
+      } else {
+        setSyncError(e instanceof ApiError ? e.detail : String(e));
+      }
     } finally {
       setSyncing(false);
     }

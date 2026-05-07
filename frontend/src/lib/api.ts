@@ -53,6 +53,11 @@ export type SettingsOverview = {
     public: number;
     private: number;
   };
+  scheduler: {
+    enabled: boolean;
+    interval_minutes: number;
+    watchdog_minutes: number;
+  };
 };
 
 export type RepoSummary = {
@@ -117,10 +122,18 @@ export type SyncRunSummary = {
   status: "running" | "ok" | "failed";
   started_at: string | null;
   finished_at: string | null;
+  duration_ms: number | null;
   repos_synced: number;
+  pulls_synced: number;
+  issues_synced: number;
   api_calls: number;
   rate_limit_remaining: number | null;
   error: string | null;
+};
+
+export type RecentRunsResponse = {
+  items: SyncRunSummary[];
+  limit: number;
 };
 
 export type LastSyncResponse = {

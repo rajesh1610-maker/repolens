@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -8,11 +9,20 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import get_settings
 from ..models import Issue, PullRequest, Repo, SyncRun, User
+from .auth import resolve_pat
+from .crypto import CryptoError
 from .github_client import GitHubClient
+
+log = logging.getLogger(__name__)
 
 # How far back to look on the very first sync (no prior successful run).
 INITIAL_SYNC_LOOKBACK = timedelta(days=90)
+
+
+class SyncBusy(Exception):
+    """Raised when a sync is already running and the caller should back off."""
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -282,3 +292,56 @@ async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
 # Backwards-compatible alias for callers that still import sync_repos.
 # Phase 4a: this now means "run the full pipeline" (repos + pulls + issues).
 sync_repos = run_full_sync
+
+
+# ---- 4c: slot acquisition + watchdog (D4) ---------------------------------
+
+
+async def reap_stale_running_runs(db: AsyncSession) -> int:
+    """Mark any 'running' rows older than the watchdog window as 'failed'.
+
+    Returns count of reaped rows. Caller decides whether to log/surface.
+    Idempotent — if a real run is in progress and within the window, it's
+    untouched.
+    """
+    settings = get_settings()
+    cutoff = datetime.now(UTC) - timedelta(minutes=settings.sync_watchdog_minutes)
+    stmt = (
+        update(SyncRun)
+        .where(SyncRun.status == "running", SyncRun.started_at < cutoff)
+        .values(
+            status="failed",
+            error=f"watchdog: timed out after {settings.sync_watchdog_minutes}m",
+            finished_at=datetime.now(UTC),
+        )
+    )
+    result = await db.execute(stmt)
+    await db.commit()
+    return result.rowcount or 0
+
+
+async def is_sync_running(db: AsyncSession) -> bool:
+    """True if a SyncRun is still 'running' AND within the watchdog window."""
+    await reap_stale_running_runs(db)
+    stmt = select(SyncRun.id).where(SyncRun.status == "running").limit(1)
+    return (await db.execute(stmt)).scalar_one_or_none() is not None
+
+
+async def attempt_sync(db: AsyncSession) -> SyncRun:
+    """One-shot sync entry point shared by manual API and scheduler.
+
+    Raises:
+        SyncBusy: a sync is already in flight (within watchdog window).
+        CryptoError: PAT can't be decrypted.
+        ValueError: no PAT configured anywhere.
+        Exception: GitHub or DB failure (already recorded on the SyncRun row).
+    """
+    if await is_sync_running(db):
+        raise SyncBusy("a sync is already running")
+
+    pat = await resolve_pat(db)  # may raise CryptoError
+    if not pat:
+        raise ValueError("no PAT configured")
+
+    async with GitHubClient(token=pat) as github:
+        return await run_full_sync(db, github)

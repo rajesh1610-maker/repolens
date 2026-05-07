@@ -8,6 +8,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import get_settings
 from ..db import get_db
 from ..models import Repo, User
 from ..services.auth import get_current_user
@@ -65,9 +66,15 @@ async def _repo_counts(db: AsyncSession) -> dict[str, int]:
 @router.get("")
 async def get_settings_overview(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     user = await get_current_user(db)
+    settings = get_settings()
     return {
         "user": _user_summary(user),
         "repos": await _repo_counts(db),
+        "scheduler": {
+            "enabled": settings.scheduler_enabled,
+            "interval_minutes": settings.scheduler_interval_minutes,
+            "watchdog_minutes": settings.sync_watchdog_minutes,
+        },
     }
 
 

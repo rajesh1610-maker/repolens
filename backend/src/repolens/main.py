@@ -11,14 +11,19 @@ from .db import engine, get_db
 from .routers import repos as repos_router
 from .routers import settings as settings_router
 from .routers import sync as sync_router
+from .services.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    await engine.dispose()
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
+        await engine.dispose()
 
 
 app = FastAPI(title="RepoLens", version=__version__, lifespan=lifespan)

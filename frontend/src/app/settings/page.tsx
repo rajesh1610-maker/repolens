@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, Github, Lock, Trash2, Check, AlertCircle, Lock as LockIcon } from "lucide-react";
-import { api, ApiError, type SettingsOverview, type RepoSummary } from "@/lib/api";
+import { Eye, EyeOff, Github, Lock, Trash2, Check, AlertCircle, Lock as LockIcon, RefreshCw } from "lucide-react";
+import { api, ApiError, type SettingsOverview, type RepoSummary, type RecentRunsResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { SyncRunsTable } from "@/components/settings/SyncRunsTable";
 
 export default function SettingsPage() {
   const [overview, setOverview] = useState<SettingsOverview | null>(null);
   const [repos, setRepos] = useState<RepoSummary[]>([]);
+  const [recentRuns, setRecentRuns] = useState<RecentRunsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,12 +20,14 @@ export default function SettingsPage() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [o, r] = await Promise.all([
+      const [o, r, runs] = await Promise.all([
         api<SettingsOverview>("/api/settings"),
         api<RepoSummary[]>("/api/repos?include_untracked=true"),
+        api<RecentRunsResponse>("/api/sync/runs?limit=10"),
       ]);
       setOverview(o);
       setRepos(r);
+      setRecentRuns(runs);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -241,6 +245,30 @@ export default function SettingsPage() {
             />
           </button>
         </div>
+      </section>
+
+      {/* Sync */}
+      <section className="rounded-lg border border-zinc-800 p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <RefreshCw size={16} />
+          <h2 className="text-base font-semibold">Sync</h2>
+        </div>
+        <p className="text-zinc-500 text-xs mb-4">
+          {overview?.scheduler.enabled ? (
+            <>
+              Background sync runs every <span className="text-zinc-300">{overview.scheduler.interval_minutes} min</span>.
+              Stale runs older than <span className="text-zinc-300">{overview.scheduler.watchdog_minutes} min</span> are
+              auto-marked failed by the watchdog.
+            </>
+          ) : (
+            <>
+              Background scheduler is <span className="text-amber-400">disabled</span>.
+              Set <code className="text-zinc-300">REPOLENS_SCHEDULER_ENABLED=true</code> in <code>backend/.env</code>{" "}
+              to enable. Manual sync via the sidebar always works.
+            </>
+          )}
+        </p>
+        {recentRuns && <SyncRunsTable runs={recentRuns.items} />}
       </section>
 
       {/* Tracked repos */}

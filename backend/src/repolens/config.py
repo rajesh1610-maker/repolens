@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     github_pat: str | None = None
     repolens_encryption_key: str | None = None
 
+    # Scheduler (D5): default off in dev where uvicorn --reload would
+    # restart the scheduler on every code change. Compose / production
+    # turn this on explicitly.
+    scheduler_enabled: bool = False
+    scheduler_interval_minutes: int = 30
+    sync_watchdog_minutes: int = 15
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

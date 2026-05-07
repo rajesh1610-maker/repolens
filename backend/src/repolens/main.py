@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import __version__
 from .config import get_settings
 from .db import engine, get_db
+from .routers import repos as repos_router
 
 settings = get_settings()
 
@@ -27,6 +28,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(repos_router.router)
 
 
 @app.get("/healthz")

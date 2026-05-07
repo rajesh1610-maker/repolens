@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -102,4 +103,81 @@ class GitHubClient:
             response = await self._get(next_url)
             for repo in response.json():
                 yield repo
+            next_url = self._next_page_url(response)
+
+    async def list_repo_pulls(
+        self,
+        owner: str,
+        name: str,
+        *,
+        since: datetime | None = None,
+        state: str = "all",
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream PRs for one repo, sorted updated-desc.
+
+        GitHub's /pulls endpoint does NOT support a `since` query param
+        (unlike /issues), so we sort updated-desc and stop early when we
+        cross `since`. Caller passes the upstream sync floor.
+        """
+        response = await self._get(
+            f"/repos/{owner}/{name}/pulls",
+            params={
+                "state": state,
+                "sort": "updated",
+                "direction": "desc",
+                "per_page": 100,
+            },
+        )
+
+        async def _walk(initial: httpx.Response) -> AsyncIterator[dict[str, Any]]:
+            current = initial
+            while True:
+                for item in current.json():
+                    if since is not None and item.get("updated_at"):
+                        if datetime.fromisoformat(item["updated_at"]) < since:
+                            return
+                    yield item
+                next_url = self._next_page_url(current)
+                if not next_url:
+                    return
+                current = await self._get(next_url)
+
+        async for item in _walk(response):
+            yield item
+
+    async def list_repo_issues(
+        self,
+        owner: str,
+        name: str,
+        *,
+        since: datetime | None = None,
+        state: str = "all",
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream issues for one repo (PRs filtered out).
+
+        GitHub returns PRs and Issues mixed under /issues; we drop any item
+        with a `pull_request` key. The endpoint supports `since` natively.
+        """
+        params: dict[str, Any] = {
+            "state": state,
+            "sort": "updated",
+            "direction": "desc",
+            "per_page": 100,
+        }
+        if since is not None:
+            params["since"] = since.isoformat()
+
+        response = await self._get(f"/repos/{owner}/{name}/issues", params=params)
+        for item in response.json():
+            if "pull_request" in item:
+                continue
+            yield item
+
+        next_url = self._next_page_url(response)
+        while next_url:
+            response = await self._get(next_url)
+            for item in response.json():
+                if "pull_request" in item:
+                    continue
+                yield item
             next_url = self._next_page_url(response)

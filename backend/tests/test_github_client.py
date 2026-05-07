@@ -102,3 +102,68 @@ async def test_next_page_url_returns_none_without_link_header() -> None:
     async with GitHubClient(token="t", transport=transport) as gh:
         repos = [r async for r in gh.list_user_repos()]
     assert len(repos) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_repo_pulls_walks_pages_and_stops_at_since() -> None:
+    """`since` short-circuits the iterator the moment we cross it."""
+    page1 = [
+        {"id": 11, "number": 5, "updated_at": "2026-05-01T00:00:00+00:00"},
+        {"id": 10, "number": 4, "updated_at": "2026-04-15T00:00:00+00:00"},
+        {"id": 9, "number": 3, "updated_at": "2026-04-10T00:00:00+00:00"},
+    ]
+    page2 = [
+        {"id": 8, "number": 2, "updated_at": "2026-03-01T00:00:00+00:00"},
+    ]
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if "page=2" in str(request.url):
+            return _make_response(page2)
+        return _make_response(
+            page1,
+            headers={"link": '<https://api.github.com/x?page=2>; rel="next"'},
+        )
+
+    transport = httpx.MockTransport(handler)
+    from datetime import datetime, timezone
+
+    since = datetime(2026, 4, 14, tzinfo=timezone.utc)
+    async with GitHubClient(token="t", transport=transport) as gh:
+        prs = [
+            p
+            async for p in gh.list_repo_pulls("a", "b", since=since)
+        ]
+
+    # Should yield 11, 10 (both newer than since), then stop on 9 (older).
+    assert [p["number"] for p in prs] == [5, 4]
+    # Crucially: page2 should NEVER be fetched — we stopped early.
+    assert all("page=2" not in str(r.url) for r in captured)
+
+
+@pytest.mark.asyncio
+async def test_list_repo_issues_filters_pull_requests_and_passes_since() -> None:
+    """The `pull_request` key marks an item as a PR; `since` must be on the wire."""
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return _make_response(
+            [
+                {"id": 100, "number": 1, "title": "real issue"},
+                {"id": 101, "number": 2, "title": "PR masquerading", "pull_request": {"url": "..."}},
+                {"id": 102, "number": 3, "title": "another real issue"},
+            ]
+        )
+
+    transport = httpx.MockTransport(handler)
+    from datetime import datetime, timezone
+
+    since = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    async with GitHubClient(token="t", transport=transport) as gh:
+        issues = [i async for i in gh.list_repo_issues("a", "b", since=since)]
+
+    assert [i["number"] for i in issues] == [1, 3]
+    # Confirm `since` was sent on the wire as ISO-8601
+    assert captured[0].url.params.get("since") == since.isoformat()

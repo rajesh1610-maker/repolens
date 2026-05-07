@@ -9,7 +9,7 @@ from .db import SessionLocal, engine
 from .services.auth import resolve_pat
 from .services.crypto import CryptoError
 from .services.github_client import GitHubClient
-from .services.sync import sync_repos
+from .services.sync import run_full_sync
 
 
 @click.group()
@@ -17,13 +17,13 @@ def cli() -> None:
     """RepoLens CLI."""
 
 
-@cli.command("sync-repos")
-def sync_repos_cmd() -> None:
-    """Pull the user's repo list from GitHub and upsert into local DB."""
-    asyncio.run(_sync_repos())
+@cli.command("sync")
+def sync_cmd() -> None:
+    """Run a full sync: repos + PRs + issues for every tracked repo."""
+    asyncio.run(_run_sync())
 
 
-async def _sync_repos() -> None:
+async def _run_sync() -> None:
     try:
         async with SessionLocal() as db:
             try:
@@ -50,10 +50,11 @@ async def _sync_repos() -> None:
                 )
                 sys.exit(1)
             async with GitHubClient(token=pat) as github:
-                run = await sync_repos(db, github)
+                run = await run_full_sync(db, github)
         elapsed = (run.finished_at - run.started_at).total_seconds() if run.finished_at else 0.0
         click.echo(
-            f"✓ synced {run.repos_synced} repos in {elapsed:.1f}s "
+            f"✓ synced {run.repos_synced} repos, {run.pulls_synced} PRs, "
+            f"{run.issues_synced} issues in {elapsed:.1f}s "
             f"(api calls: {run.api_calls}, rate limit remaining: {run.rate_limit_remaining})"
         )
     finally:

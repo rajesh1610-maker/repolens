@@ -11,7 +11,7 @@ from ..models import SyncRun
 from ..services.auth import resolve_pat
 from ..services.crypto import CryptoError
 from ..services.github_client import GitHubClient
-from ..services.sync import sync_repos
+from ..services.sync import run_full_sync
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -25,6 +25,8 @@ def _serialize_run(run: SyncRun | None) -> dict[str, Any] | None:
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "repos_synced": run.repos_synced,
+        "pulls_synced": run.pulls_synced,
+        "issues_synced": run.issues_synced,
         "api_calls": run.api_calls,
         "rate_limit_remaining": run.rate_limit_remaining,
         "error": run.error,
@@ -66,7 +68,7 @@ async def trigger_sync(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
 
     try:
         async with GitHubClient(token=pat) as github:
-            run = await sync_repos(db, github)
+            run = await run_full_sync(db, github)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

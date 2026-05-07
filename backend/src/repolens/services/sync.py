@@ -1,21 +1,46 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Repo, SyncRun, User
+from ..models import Issue, PullRequest, Repo, SyncRun, User
 from .github_client import GitHubClient
+
+# How far back to look on the very first sync (no prior successful run).
+INITIAL_SYNC_LOOKBACK = timedelta(days=90)
 
 
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
         return None
     return datetime.fromisoformat(value)
+
+
+def _derive_pr_state(gh_pr: dict[str, Any]) -> str:
+    """GitHub's PR state is open|closed; we promote to 'merged' if merged_at is set."""
+    if gh_pr.get("merged_at"):
+        return "merged"
+    return gh_pr.get("state", "open")
+
+
+def _label_names(gh_item: dict[str, Any]) -> list[str]:
+    return [label.get("name", "") for label in gh_item.get("labels", []) if label.get("name")]
+
+
+async def _last_successful_sync_started_at(db: AsyncSession) -> datetime | None:
+    stmt = (
+        select(SyncRun.started_at)
+        .where(SyncRun.status == "ok")
+        .order_by(SyncRun.started_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
 
 
 async def _upsert_user(db: AsyncSession, gh_user: dict[str, Any]) -> User:
@@ -75,11 +100,115 @@ async def _upsert_repo(
     await db.execute(stmt)
 
 
-async def sync_repos(db: AsyncSession, github: GitHubClient) -> SyncRun:
-    """Pull the user's repos from GitHub and upsert into the local DB.
+async def _upsert_pull_request(
+    db: AsyncSession, repo_id: uuid.UUID, gh_pr: dict[str, Any], now: datetime
+) -> None:
+    payload = {
+        "number": gh_pr["number"],
+        "title": gh_pr.get("title", ""),
+        "state": _derive_pr_state(gh_pr),
+        "draft": bool(gh_pr.get("draft", False)),
+        "author_login": (gh_pr.get("user") or {}).get("login"),
+        "author_avatar_url": (gh_pr.get("user") or {}).get("avatar_url"),
+        "labels": _label_names(gh_pr),
+        "created_at": _parse_iso(gh_pr.get("created_at")),
+        "updated_at": _parse_iso(gh_pr.get("updated_at")),
+        "closed_at": _parse_iso(gh_pr.get("closed_at")),
+        "merged_at": _parse_iso(gh_pr.get("merged_at")),
+        "raw": gh_pr,
+        "synced_at": now,
+    }
+    stmt = (
+        insert(PullRequest)
+        .values(
+            id=uuid.uuid4(),
+            repo_id=repo_id,
+            github_id=gh_pr["id"],
+            **payload,
+        )
+        .on_conflict_do_update(
+            index_elements=["github_id"],
+            set_=payload,
+        )
+    )
+    await db.execute(stmt)
 
-    Records a SyncRun row in all cases (success or failure) for audit.
-    Returns the persisted SyncRun.
+
+async def _upsert_issue(
+    db: AsyncSession, repo_id: uuid.UUID, gh_issue: dict[str, Any], now: datetime
+) -> None:
+    reactions = gh_issue.get("reactions") or {}
+    payload = {
+        "number": gh_issue["number"],
+        "title": gh_issue.get("title", ""),
+        "state": gh_issue.get("state", "open"),
+        "author_login": (gh_issue.get("user") or {}).get("login"),
+        "author_avatar_url": (gh_issue.get("user") or {}).get("avatar_url"),
+        "labels": _label_names(gh_issue),
+        "comments_count": int(gh_issue.get("comments", 0)),
+        "reactions_total": int(reactions.get("total_count", 0)),
+        "created_at": _parse_iso(gh_issue.get("created_at")),
+        "updated_at": _parse_iso(gh_issue.get("updated_at")),
+        "closed_at": _parse_iso(gh_issue.get("closed_at")),
+        "raw": gh_issue,
+        "synced_at": now,
+    }
+    stmt = (
+        insert(Issue)
+        .values(
+            id=uuid.uuid4(),
+            repo_id=repo_id,
+            github_id=gh_issue["id"],
+            **payload,
+        )
+        .on_conflict_do_update(
+            index_elements=["github_id"],
+            set_=payload,
+        )
+    )
+    await db.execute(stmt)
+
+
+async def sync_pulls_for_repo(
+    db: AsyncSession,
+    github: GitHubClient,
+    repo: Repo,
+    *,
+    since: datetime | None,
+) -> int:
+    now = datetime.now(UTC)
+    count = 0
+    async for gh_pr in github.list_repo_pulls(repo.owner, repo.name, since=since):
+        await _upsert_pull_request(db, repo.id, gh_pr, now)
+        count += 1
+    return count
+
+
+async def sync_issues_for_repo(
+    db: AsyncSession,
+    github: GitHubClient,
+    repo: Repo,
+    *,
+    since: datetime | None,
+) -> int:
+    now = datetime.now(UTC)
+    count = 0
+    async for gh_issue in github.list_repo_issues(repo.owner, repo.name, since=since):
+        await _upsert_issue(db, repo.id, gh_issue, now)
+        count += 1
+    return count
+
+
+async def run_full_sync(db: AsyncSession, github: GitHubClient) -> SyncRun:
+    """Top-level orchestration. Runs the full pipeline and records a SyncRun.
+
+    Order:
+        1. Identify the user, upsert
+        2. List repos, upsert each
+        3. For each tracked repo: pulls + issues (incremental via `since`)
+
+    `since` is the started_at of the most recent successful run, or
+    `now - INITIAL_SYNC_LOOKBACK` on the very first sync.
     """
     sync_run = SyncRun(status="running")
     db.add(sync_run)
@@ -87,11 +216,17 @@ async def sync_repos(db: AsyncSession, github: GitHubClient) -> SyncRun:
     await db.refresh(sync_run)
     sync_run_id = sync_run.id
 
+    since_floor = (
+        await _last_successful_sync_started_at(db)
+        or datetime.now(UTC) - INITIAL_SYNC_LOOKBACK
+    )
+
     try:
         gh_user = await github.get_authenticated_user()
         user = await _upsert_user(db, gh_user)
         await db.commit()
 
+        # Step 1: repos
         now = datetime.now(UTC)
         repos_synced = 0
         async for gh_repo in github.list_user_repos():
@@ -99,12 +234,25 @@ async def sync_repos(db: AsyncSession, github: GitHubClient) -> SyncRun:
             repos_synced += 1
         await db.commit()
 
+        # Step 2: PRs + issues for each tracked repo
+        result = await db.execute(select(Repo).where(Repo.tracked.is_(True)))
+        tracked_repos = list(result.scalars().all())
+
+        pulls_synced = 0
+        issues_synced = 0
+        for repo in tracked_repos:
+            pulls_synced += await sync_pulls_for_repo(db, github, repo, since=since_floor)
+            issues_synced += await sync_issues_for_repo(db, github, repo, since=since_floor)
+            await db.commit()  # per-repo commits = bounded loss on mid-sync failure
+
         await db.execute(
             update(SyncRun)
             .where(SyncRun.id == sync_run_id)
             .values(
                 status="ok",
                 repos_synced=repos_synced,
+                pulls_synced=pulls_synced,
+                issues_synced=issues_synced,
                 api_calls=github.api_calls,
                 rate_limit_remaining=github.rate_limit_remaining,
                 finished_at=datetime.now(UTC),
@@ -129,3 +277,8 @@ async def sync_repos(db: AsyncSession, github: GitHubClient) -> SyncRun:
 
     await db.refresh(sync_run)
     return sync_run
+
+
+# Backwards-compatible alias for callers that still import sync_repos.
+# Phase 4a: this now means "run the full pipeline" (repos + pulls + issues).
+sync_repos = run_full_sync

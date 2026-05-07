@@ -55,3 +55,16 @@ Append-only. Each entry: date, decision, options considered, choice, why.
 ### D12 — Specs are living
 - **Choice:** `repolens/specs/` is updated alongside the build; this `DECISIONS.md` is append-only.
 - **Why:** keep spec narrative current; preserve audit trail of *why* in this log.
+
+---
+
+## 2026-05-07 — End of Phase 0
+
+### D13 — Push at end of Phase 0 (not later)
+- **Choice:** `gh repo create` + push on commit `018b8f4` immediately after Phase 0 verification, while the scaffold is still trivial.
+- **Why:** user direction. Also: empty-but-runnable is a fine first commit on the public repo — every subsequent commit is now visible to anyone who stars early.
+
+### D14 — Reuse an existing GitHub PAT for Phase 1 (not generate fresh)
+- **Choice:** reuse a PAT the user already has, rather than generate a new fine-grained PAT scoped to RepoLens.
+- **Why:** user's call. Trade-off accepted: revoking that PAT for any reason will affect more than RepoLens. If RepoLens leaves the prototype phase, **regenerate as a fine-grained, RepoLens-scoped PAT** before publishing the self-host README.
+- **How to apply:** Phase 1 reads PAT from `GITHUB_PAT` env var (no encryption yet — that arrives in Phase 2). Don't commit the PAT; `.env` is in `.gitignore`.

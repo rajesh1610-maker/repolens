@@ -7,6 +7,7 @@ import click
 
 from .db import SessionLocal, engine
 from .services.auth import resolve_pat
+from .services.crypto import CryptoError
 from .services.github_client import GitHubClient
 from .services.sync import sync_repos
 
@@ -25,7 +26,22 @@ def sync_repos_cmd() -> None:
 async def _sync_repos() -> None:
     try:
         async with SessionLocal() as db:
-            pat = await resolve_pat(db)
+            try:
+                pat = await resolve_pat(db)
+            except CryptoError as exc:
+                click.echo(
+                    f"Error: cannot decrypt the saved PAT — {exc}\n"
+                    f"\n"
+                    f"This usually means REPOLENS_ENCRYPTION_KEY in backend/.env "
+                    f"is missing, malformed, or different from the key used when "
+                    f"the PAT was originally saved.\n"
+                    f"\n"
+                    f"Fix: restore the original key, or DELETE the saved PAT "
+                    f"(curl -X DELETE http://localhost:8004/api/settings/pat) "
+                    f"and re-save through the Settings page.",
+                    err=True,
+                )
+                sys.exit(2)
             if not pat:
                 click.echo(
                     "Error: no PAT available. Save one via the Settings page "

@@ -50,12 +50,23 @@ def encrypt(plaintext: str) -> bytes:
 
 
 def decrypt(blob: bytes) -> str:
-    """Decrypt nonce || ciphertext bytes, return plaintext."""
+    """Decrypt nonce || ciphertext bytes, return plaintext.
+
+    Wraps any underlying cryptography exception (e.g. InvalidTag from a
+    wrong key or a tampered blob) in CryptoError so callers only need to
+    handle one exception type.
+    """
     if len(blob) < NONCE_BYTES + 1:
         raise CryptoError("ciphertext too short")
     aesgcm = AESGCM(_master_key())
     nonce, ciphertext = blob[:NONCE_BYTES], blob[NONCE_BYTES:]
-    return aesgcm.decrypt(nonce, ciphertext, None).decode("utf-8")
+    try:
+        return aesgcm.decrypt(nonce, ciphertext, None).decode("utf-8")
+    except Exception as exc:
+        raise CryptoError(
+            f"decryption failed ({type(exc).__name__}); the master key may be "
+            f"wrong or the ciphertext may be corrupt"
+        ) from exc
 
 
 def generate_key() -> str:

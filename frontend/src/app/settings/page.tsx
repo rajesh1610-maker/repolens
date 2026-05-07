@@ -90,6 +90,16 @@ export default function SettingsPage() {
     return <div className="text-zinc-400">Loading settings…</div>;
   }
 
+  // Compute visible count from repos[] so it correctly intersects
+  // tracked AND visibility (the API counts are unconditional).
+  const publicOnly = overview?.user.public_only_mode ?? false;
+  const visibleCount = repos.filter(
+    (r) => r.tracked && (!publicOnly || r.visibility === "public")
+  ).length;
+  const hiddenPrivateCount = publicOnly
+    ? repos.filter((r) => r.tracked && r.visibility === "private").length
+    : 0;
+
   return (
     <div className="max-w-3xl space-y-10">
       <div>
@@ -205,10 +215,10 @@ export default function SettingsPage() {
             <div className="text-sm font-medium">Public-only mode</div>
             {overview && (
               <div className="text-xs text-zinc-400 mt-1">
-                Currently visible: {overview.user.public_only_mode ? overview.repos.public : overview.repos.tracked} repos
-                {overview.user.public_only_mode && overview.repos.private > 0 && (
+                Currently visible: {visibleCount} repo{visibleCount === 1 ? "" : "s"}
+                {hiddenPrivateCount > 0 && (
                   <span className="text-amber-400">
-                    {" "}({overview.repos.private} private hidden)
+                    {" "}({hiddenPrivateCount} private hidden)
                   </span>
                 )}
               </div>

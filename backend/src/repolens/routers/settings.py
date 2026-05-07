@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,11 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class PatSaveRequest(BaseModel):
     pat: str = Field(..., min_length=20, description="GitHub PAT (classic or fine-grained)")
+
+    @field_validator("pat")
+    @classmethod
+    def _strip_whitespace(cls, v: str) -> str:
+        return v.strip()
 
 
 class PublicOnlyToggleRequest(BaseModel):

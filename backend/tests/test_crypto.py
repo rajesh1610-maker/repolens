@@ -45,11 +45,16 @@ def test_each_encrypt_uses_a_fresh_nonce(monkeypatch: pytest.MonkeyPatch) -> Non
     assert decrypt(blob_a) == decrypt(blob_b) == "same plaintext"
 
 
-def test_decrypt_with_wrong_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_decrypt_with_wrong_key_raises_cryptoerror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wrong key must surface as CryptoError, not the underlying InvalidTag.
+
+    Callers (the CLI in particular) catch CryptoError to render a helpful
+    message; the wrap means they don't need to know about cryptography internals.
+    """
     _set_key(monkeypatch, generate_key())
     blob = encrypt("hello")
     _set_key(monkeypatch, generate_key())
-    with pytest.raises(Exception):  # cryptography raises InvalidTag
+    with pytest.raises(CryptoError, match="decryption failed"):
         decrypt(blob)
 
 

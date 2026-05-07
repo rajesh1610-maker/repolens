@@ -275,3 +275,48 @@ export type LastSyncResponse = {
 };
 
 export const SYNC_EVENT = "repolens:synced";
+
+export type DigestSummary = {
+  id: string;
+  period_start: string;
+  period_end: string;
+  body_md: string;
+  input_summary: {
+    period?: { start: string; end: string };
+    repo_count?: number;
+    totals?: {
+      merged_prs?: number;
+      opened_issues?: number;
+      closed_issues?: number;
+      releases?: number;
+      stars_delta?: number;
+      views?: number;
+      unique_views?: number;
+      clones?: number;
+    };
+    counts?: Record<string, number>;
+  };
+  validation_warnings: string[];
+  model: string;
+  tokens_in: number;
+  tokens_out: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  cost_usd: number;
+  stop_reason: string | null;
+  generated_at: string | null;
+};
+
+export type DigestLatestResponse = {
+  digest: DigestSummary | null;
+};
+
+export type DigestListResponse = {
+  items: DigestSummary[];
+  limit: number;
+};
+
+export type DigestGenerateResponse = {
+  digest: DigestSummary;
+  warnings: string[];
+};

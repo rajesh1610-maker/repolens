@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, Github, Lock, Trash2, Check, AlertCircle, Lock as LockIcon, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, Github, Lock, Trash2, Check, AlertCircle, Lock as LockIcon, RefreshCw, Sparkles } from "lucide-react";
 import { api, ApiError, type SettingsOverview, type RepoSummary, type RecentRunsResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { SyncRunsTable } from "@/components/settings/SyncRunsTable";
@@ -16,6 +16,10 @@ export default function SettingsPage() {
   const [patInput, setPatInput] = useState("");
   const [showPat, setShowPat] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [anthropicInput, setAnthropicInput] = useState("");
+  const [showAnthropic, setShowAnthropic] = useState(false);
+  const [savingAnthropic, setSavingAnthropic] = useState(false);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -61,6 +65,34 @@ export default function SettingsPage() {
     if (!confirm("Remove the saved PAT? RepoLens will fall back to GITHUB_PAT in .env (if set).")) return;
     try {
       await api("/api/settings/pat", { method: "DELETE" });
+      await refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : String(e));
+    }
+  };
+
+  const saveAnthropicKey = async () => {
+    if (!anthropicInput.trim()) return;
+    setSavingAnthropic(true);
+    setError(null);
+    try {
+      await api("/api/settings/anthropic-key", {
+        method: "POST",
+        body: JSON.stringify({ api_key: anthropicInput.trim() }),
+      });
+      setAnthropicInput("");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : String(e));
+    } finally {
+      setSavingAnthropic(false);
+    }
+  };
+
+  const deleteAnthropicKey = async () => {
+    if (!confirm("Remove the saved Anthropic API key? Digests will fall back to ANTHROPIC_API_KEY in .env (if set).")) return;
+    try {
+      await api("/api/settings/anthropic-key", { method: "DELETE" });
       await refresh();
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : String(e));
@@ -200,6 +232,73 @@ export default function SettingsPage() {
             {saving ? "Validating…" : "Save"}
           </button>
         </div>
+      </section>
+
+      {/* Anthropic API key */}
+      <section className="rounded-lg border border-zinc-800 p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkles size={16} />
+          <h2 className="text-base font-semibold">Anthropic API key</h2>
+        </div>
+        <p className="text-zinc-500 text-xs mb-4">
+          Powers the weekly AI digest. Your key is encrypted with AES-GCM at rest.
+          Get one at <code className="text-zinc-300">console.anthropic.com</code>.
+          Cost is shown on every digest — typical Opus 4.7 digest is ~$0.05–$0.15.
+        </p>
+
+        {overview?.user.has_anthropic_key ? (
+          <div className="flex items-center gap-3 mb-4 p-3 rounded-md bg-zinc-900">
+            <Lock size={14} className="text-teal-400" />
+            <div className="flex-1 text-xs text-teal-400">API key saved (encrypted)</div>
+            <button
+              onClick={deleteAnthropicKey}
+              className="text-xs text-zinc-400 hover:text-red-400 flex items-center gap-1"
+            >
+              <Trash2 size={12} />
+              Remove
+            </button>
+          </div>
+        ) : (
+          <div className="text-sm text-amber-400 mb-4">
+            Not configured. Save a key below or set <code>ANTHROPIC_API_KEY</code> in <code>backend/.env</code>.
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type={showAnthropic ? "text" : "password"}
+              value={anthropicInput}
+              onChange={(e) => setAnthropicInput(e.target.value)}
+              placeholder={overview?.user.has_anthropic_key ? "Replace existing key…" : "sk-ant-…"}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm pr-10 focus:outline-none focus:border-teal-600"
+            />
+            <button
+              type="button"
+              onClick={() => setShowAnthropic((s) => !s)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+            >
+              {showAnthropic ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <button
+            onClick={saveAnthropicKey}
+            disabled={savingAnthropic || !anthropicInput.trim() || !overview?.user.configured}
+            className={cn(
+              "px-4 py-2 rounded-md text-sm font-medium transition-colors",
+              savingAnthropic || !anthropicInput.trim() || !overview?.user.configured
+                ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                : "bg-teal-700 hover:bg-teal-600 text-white"
+            )}
+          >
+            {savingAnthropic ? "Saving…" : "Save"}
+          </button>
+        </div>
+        {!overview?.user.configured && (
+          <p className="text-xs text-zinc-500 mt-2">
+            Save a GitHub PAT first — the Anthropic key is stored on the same user row.
+          </p>
+        )}
       </section>
 
       {/* Visibility */}

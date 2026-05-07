@@ -27,6 +27,23 @@ class PatSaveRequest(BaseModel):
         return v.strip()
 
 
+class AnthropicKeySaveRequest(BaseModel):
+    """Phase 8: persist an Anthropic API key, encrypted at rest.
+
+    Anthropic keys start with `sk-ant-` and are typically ~100 chars,
+    so a min_length of 20 is a forgiving sanity check that still
+    rejects an accidentally-pasted single word. Whitespace is stripped
+    the same way the PAT is.
+    """
+
+    api_key: str = Field(..., min_length=20, description="Anthropic API key")
+
+    @field_validator("api_key")
+    @classmethod
+    def _strip_whitespace(cls, v: str) -> str:
+        return v.strip()
+
+
 class PublicOnlyToggleRequest(BaseModel):
     public_only_mode: bool
 
@@ -141,6 +158,50 @@ async def delete_pat(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     if user is None:
         raise HTTPException(status_code=404, detail="No user configured")
     await db.execute(update(User).where(User.id == user.id).values(pat_encrypted=None))
+    await db.commit()
+    await db.refresh(user)
+    return {"ok": True, "user": _user_summary(user)}
+
+
+@router.post("/anthropic-key")
+async def save_anthropic_key(
+    body: AnthropicKeySaveRequest, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Encrypt and persist the Anthropic API key on the existing user row.
+
+    Requires a user to already exist (i.e. PAT saved first). We don't
+    validate the key against Anthropic here — a 401 from the digest
+    endpoint is a clear-enough signal, and a "validate" round-trip
+    would cost a real token.
+    """
+    user = await get_current_user(db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Save a GitHub PAT first (no user row exists yet).",
+        )
+    try:
+        blob = encrypt(body.api_key)
+    except CryptoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+    await db.execute(
+        update(User).where(User.id == user.id).values(anthropic_key_encrypted=blob)
+    )
+    await db.commit()
+    await db.refresh(user)
+    return {"ok": True, "user": _user_summary(user)}
+
+
+@router.delete("/anthropic-key")
+async def delete_anthropic_key(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    user = await get_current_user(db)
+    if user is None:
+        raise HTTPException(status_code=404, detail="No user configured")
+    await db.execute(
+        update(User).where(User.id == user.id).values(anthropic_key_encrypted=None)
+    )
     await db.commit()
     await db.refresh(user)
     return {"ok": True, "user": _user_summary(user)}

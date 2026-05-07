@@ -197,3 +197,34 @@ Append-only. Each entry: date, decision, options considered, choice, why.
 ### D34 — Stuck-label match is Python-side filter over a JSONB array
 - **Choice:** SQL filters to `Issue.labels != []` then Python iterates and case-insensitively matches against `STUCK_LABELS` set.
 - **Why:** Postgres jsonb-array containment via `?` operator works for exact case-sensitive match only. The "needs info" / "Needs Info" / "needs-info" reality of GitHub labels needs case-insensitive + space-vs-hyphen tolerant matching, which Python expresses cleanly. With v0.1 row counts the cost is invisible. Phase 9 polish: GIN index + `jsonb_array_elements_text()` + lower() for native containment if rows >10k.
+
+---
+
+## 2026-05-07 — Phase 6 QA pass
+
+Bugs caught by independent code-review agent + my own pass + mypy strict.
+Each fixed in this commit; rationale captured here so future contributors
+don't repeat.
+
+### D35 — `/api/releases` is N+1-free
+- **What was wrong:** the previous implementation iterated each tracked repo and ran (a) a `COUNT(*)` for merged-PRs-since and (b) a separate query for the latest release tag. With N repos that's 2N+1 queries. With a typical 30-repo maintainer that's 61 queries per page load.
+- **Fix:** three queries total regardless of repo count: (1) repos for the user, (2) `DISTINCT ON (repo_id)` over releases for latest tag + published_at per repo, (3) a single `GROUP BY repo_id` over merged PRs with an `OR`-of-per-repo-gate WHERE clause encoding "merged_at > that repo's latest published_at, OR repo has no release yet".
+- **Why this not a stored materialized view:** view-refresh complexity isn't justified at v0.1 scale. Three indexed queries is fast enough for 100s of repos.
+
+### D36 — `list_repo_releases` follows pagination, not silently truncated
+- **Was:** capped at one page (`per_page=30`) — repos with >30 releases lost data silently.
+- **Fix:** walks `Link: rel="next"` like `list_repo_pulls` does, plus an opt-in `max_pages` safety cap so a misbehaving server can't infinite-loop the rate-limit budget.
+
+### D37 — `stuck_issues` chunks until satisfied
+- **Was:** "fetch limit*2 once, filter in Python, return what we got" — silently returned <limit when the first chunk had few label matches.
+- **Fix:** chunked walk with offset that keeps fetching until `len(rows) >= limit` OR the source set is exhausted. Bounded, correct.
+
+### D38 — `merged_at IS NOT NULL` guard for merged-PR queries
+- **Why:** PRs with `state='merged'` but `merged_at IS NULL` shouldn't exist — they're corrupt sync state from a partial fetch. Silently including them on one path and excluding them on the time-gated path was inconsistent. Both paths now skip them explicitly.
+
+### D39 — mypy strict mode passes clean
+- **Was:** 20 errors under `strict = true`. Mostly typing weakness (missing `Select[Any]` generic args, `**dict` spread that mypy can't narrow), one real bug (`row` variable shadowed across two SQL result iterations in `routers/repos.py`).
+- **Fix:** typed annotations across the new code, replaced the `**facet_extra` dict-spread with an inner `_facet_query` helper that takes typed parameters, renamed loop variables to be unambiguous. mypy strict + ruff + pytest all green.
+
+### D40 — Hotkey `o` calls `preventDefault()`
+- **Why:** `j` and `k` already did; `o` had a TOCTOU window where the browser's default could fire before our `window.open`. Trivial fix, consistent now.

@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Select, and_, select
+from sqlalchemy import ColumnElement, Select, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Issue, Repo, User
@@ -50,9 +50,9 @@ def _serialize(issue: Issue, repo: Repo) -> dict[str, Any]:
     }
 
 
-def _user_scope(user: User) -> list:
+def _user_scope(user: User) -> list[ColumnElement[bool]]:
     """Common predicates: open + tracked + owned by user + public_only-respecting."""
-    where = [
+    where: list[ColumnElement[bool]] = [
         Issue.state == "open",
         Repo.user_id == user.id,
         Repo.tracked.is_(True),
@@ -62,7 +62,7 @@ def _user_scope(user: User) -> list:
     return where
 
 
-def _base_select() -> Select:
+def _base_select() -> Select[tuple[Issue, Repo]]:
     return select(Issue, Repo).join(Repo, Issue.repo_id == Repo.id)
 
 
@@ -96,30 +96,42 @@ async def stuck_issues(
 ) -> list[dict[str, Any]]:
     """Open issues with a 'needs info / blocked' label that haven't moved in 14d.
 
-    JSONB label match is case-insensitive in Python — we fetch a bit
-    wider in SQL (label-array is non-empty) and filter precisely in Python.
-    For v0.1 with realistic repo sizes this is fine; later we'll add a
-    GIN index + jsonb_array_elements_text() for native containment.
+    JSONB label match is case-insensitive in Python — we page through
+    SQL results in chunks until we have `limit` matches OR the source
+    is exhausted. The earlier "fetch `limit*2` once" approach silently
+    returned <limit when the first chunk had few matching labels.
+
+    Phase 9 polish path: GIN index on `labels` + `jsonb_array_elements_text()`
+    + `lower()` containment for native filtering. Until then, the
+    chunked walk is correct and bounded by the source set.
     """
     cutoff = datetime.now(UTC) - timedelta(days=STUCK_DAYS)
-    stmt = (
-        _base_select()
-        .where(
-            and_(
-                *_user_scope(user),
-                Issue.updated_at < cutoff,
-                Issue.labels != [],
+    chunk_size = max(limit * 2, 100)
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while len(rows) < limit:
+        stmt = (
+            _base_select()
+            .where(
+                and_(
+                    *_user_scope(user),
+                    Issue.updated_at < cutoff,
+                    Issue.labels != [],
+                )
             )
+            .order_by(Issue.updated_at.asc())
+            .offset(offset)
+            .limit(chunk_size)
         )
-        .order_by(Issue.updated_at.asc())
-        .limit(limit * 2)  # over-fetch for client-side filter
-    )
-    rows = []
-    for issue, repo in (await db.execute(stmt)).all():
-        for label in issue.labels or []:
-            if isinstance(label, str) and label.strip().lower() in STUCK_LABELS:
-                rows.append(_serialize(issue, repo))
-                break
-        if len(rows) >= limit:
+        chunk = (await db.execute(stmt)).all()
+        if not chunk:
             break
+        for issue, repo in chunk:
+            for label in issue.labels or []:
+                if isinstance(label, str) and label.strip().lower() in STUCK_LABELS:
+                    rows.append(_serialize(issue, repo))
+                    break
+            if len(rows) >= limit:
+                break
+        offset += chunk_size
     return rows

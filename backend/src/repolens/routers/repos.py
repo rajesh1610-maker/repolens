@@ -104,11 +104,13 @@ async def _aggregate_counts_by_repo(
     issues_rows = (await db.execute(issues_q)).all()
 
     counts: dict[uuid.UUID, dict[str, int]] = {}
-    for row in pulls_rows:
-        counts.setdefault(row.repo_id, {})["open_pulls_count"] = row.open_pulls or 0
-        counts.setdefault(row.repo_id, {})["merged_pulls_30d"] = row.merged_30d or 0
-    for row in issues_rows:
-        counts.setdefault(row.repo_id, {})["open_issues_real_count"] = row.open_issues or 0
+    for pr_row in pulls_rows:
+        counts.setdefault(pr_row.repo_id, {})["open_pulls_count"] = pr_row.open_pulls or 0
+        counts.setdefault(pr_row.repo_id, {})["merged_pulls_30d"] = pr_row.merged_30d or 0
+    for issue_row in issues_rows:
+        counts.setdefault(issue_row.repo_id, {})["open_issues_real_count"] = (
+            issue_row.open_issues or 0
+        )
     return counts
 
 

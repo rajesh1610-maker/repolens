@@ -18,9 +18,10 @@ that way the toggle is instant and reversible without re-syncing.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import InboxItem, Issue, PullRequest, Repo
@@ -42,7 +43,7 @@ def _row_to_item_dict(
     labels: list[str],
     reactions_total: int,
     comments_count: int,
-    last_activity_at,
+    last_activity_at: datetime,
 ) -> dict[str, Any]:
     """Build the dict that becomes one row in `inbox_items`.
 
@@ -158,6 +159,6 @@ async def rebuild_inbox_items(db: AsyncSession, user_id: uuid.UUID) -> int:
         )
 
     if rows:
-        await db.execute(InboxItem.__table__.insert(), rows)
+        await db.execute(insert(InboxItem), rows)
     await db.flush()
     return len(rows)

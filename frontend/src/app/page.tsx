@@ -63,9 +63,11 @@ export default function InboxPage() {
         e.preventDefault();
         setSelectedIndex((i) => Math.max(i - 1, 0));
       },
-      o: () => {
+      o: (e) => {
         const row = data?.items[selectedIndex];
-        if (row) window.open(row.url, "_blank", "noopener,noreferrer");
+        if (!row) return;
+        e.preventDefault();
+        window.open(row.url, "_blank", "noopener,noreferrer");
       },
     },
     [data, selectedIndex],

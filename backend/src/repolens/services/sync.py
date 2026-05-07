@@ -28,14 +28,16 @@ class SyncBusy(Exception):
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
         return None
-    return datetime.fromisoformat(value)
+    parsed: datetime = datetime.fromisoformat(value)
+    return parsed
 
 
 def _derive_pr_state(gh_pr: dict[str, Any]) -> str:
     """GitHub's PR state is open|closed; we promote to 'merged' if merged_at is set."""
     if gh_pr.get("merged_at"):
         return "merged"
-    return gh_pr.get("state", "open")
+    state: str = gh_pr.get("state", "open")
+    return state
 
 
 def _label_names(gh_item: dict[str, Any]) -> list[str]:
@@ -385,7 +387,8 @@ async def reap_stale_running_runs(db: AsyncSession) -> int:
     )
     result = await db.execute(stmt)
     await db.commit()
-    return result.rowcount or 0
+    rowcount: int = getattr(result, "rowcount", 0) or 0
+    return rowcount
 
 
 async def is_sync_running(db: AsyncSession) -> bool:

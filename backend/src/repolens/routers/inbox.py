@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Select, and_, func, select
+from sqlalchemy import ColumnElement, Select, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api", tags=["inbox"])
 PRIORITY_TIME_DECAY_PER_DAY = 5.0  # mirrors services/priority.py
 
 
-def _total_score_expr():
+def _total_score_expr() -> ColumnElement[float]:
     """SQL expression for the time-decayed total score.
 
     Mirrors `services.priority.total_score` so Python and SQL never
@@ -78,14 +78,14 @@ def _serialize(item: InboxItem, total_score: float) -> dict[str, Any]:
 
 
 def _apply_filters(
-    stmt: Select,
+    stmt: Select[Any],
     *,
     kind: str,
     hide_drafts: bool,
     has_reactions: bool,
     search: str | None,
     public_only: bool,
-) -> Select:
+) -> Select[Any]:
     if kind != "all":
         stmt = stmt.where(InboxItem.kind == kind)
     if hide_drafts:
@@ -158,30 +158,23 @@ async def list_inbox(
     # Facets — counts before the kind filter (so chips remain meaningful).
     # We DO honor public_only and hide_drafts/has_reactions in facets so the
     # numbers match what the user would see when toggling kind.
-    facet_where_args = list(base_where)
-    facet_extra = {"hide_drafts": hide_drafts, "has_reactions": has_reactions, "search": search}
-    all_count_stmt = _apply_filters(
-        select(func.count()).select_from(InboxItem).where(and_(*facet_where_args)),
-        kind="all",
-        public_only=False,
-        **facet_extra,
-    )
-    pr_count_stmt = _apply_filters(
-        select(func.count()).select_from(InboxItem).where(and_(*facet_where_args)),
-        kind="pr",
-        public_only=False,
-        **facet_extra,
-    )
-    issue_count_stmt = _apply_filters(
-        select(func.count()).select_from(InboxItem).where(and_(*facet_where_args)),
-        kind="issue",
-        public_only=False,
-        **facet_extra,
-    )
+    def _facet_query(facet_kind: str) -> Select[Any]:
+        return _apply_filters(
+            select(func.count()).select_from(InboxItem).where(and_(*base_where)),
+            kind=facet_kind,
+            hide_drafts=hide_drafts,
+            has_reactions=has_reactions,
+            search=search,
+            public_only=False,  # already in base_where
+        )
+
+    all_count_stmt = _facet_query("all")
+    pr_count_stmt = _facet_query("pr")
+    issue_count_stmt = _facet_query("issue")
     with_reactions_stmt = (
         select(func.count())
         .select_from(InboxItem)
-        .where(and_(*facet_where_args, InboxItem.reactions_total > 0))
+        .where(and_(*base_where, InboxItem.reactions_total > 0))
     )
 
     items_rows = (await db.execute(items_stmt)).all()

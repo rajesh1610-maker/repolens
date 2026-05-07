@@ -8,10 +8,11 @@ GET /api/releases/{owner}/{name}/draft  — generated draft notes for a
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
@@ -60,6 +61,11 @@ async def list_releases_overview(
 
     Used by the Releases page sidebar to show repos in "ready to ship"
     order (most unreleased commits first).
+
+    Performance: this endpoint is N+1-free. We fetch repos, latest
+    releases (one query, grouped by repo_id), and merged-PR counts
+    (one query, grouped by repo_id with a per-repo published_at gate)
+    — three queries total, regardless of repo count.
     """
     user = await get_current_user(db)
     if user is None:
@@ -67,49 +73,67 @@ async def list_releases_overview(
 
     public_only = bool(user.public_only_mode)
 
-    # Repos this user owns + tracks (+ honor public_only_mode)
-    repo_stmt = select(Repo).where(
-        Repo.user_id == user.id, Repo.tracked.is_(True)
-    )
+    # 1. Repos this user owns + tracks (+ honor public_only_mode)
+    repo_stmt = select(Repo).where(Repo.user_id == user.id, Repo.tracked.is_(True))
     if public_only:
         repo_stmt = repo_stmt.where(Repo.visibility == "public")
     repos = list((await db.execute(repo_stmt)).scalars().all())
+    if not repos:
+        return {"items": []}
 
-    # Latest non-draft release per repo
-    latest_release_subq = (
-        select(
-            Release.repo_id,
-            func.max(Release.published_at).label("latest_published"),
-        )
-        .where(Release.draft.is_(False))
-        .group_by(Release.repo_id)
-        .subquery()
+    repo_ids = [r.id for r in repos]
+
+    # 2. Latest non-draft release per repo, with the corresponding tag.
+    # Two-step: first get max(published_at) per repo, then JOIN to find the
+    # tag at that timestamp. Postgres `DISTINCT ON` is the natural form.
+    latest_rel_stmt = (
+        select(Release.repo_id, Release.tag_name, Release.published_at)
+        .distinct(Release.repo_id)
+        .where(Release.repo_id.in_(repo_ids), Release.draft.is_(False))
+        .order_by(Release.repo_id, Release.published_at.desc().nullslast())
     )
-    latest_releases = {
-        row.repo_id: row.latest_published
-        for row in (await db.execute(select(latest_release_subq))).all()
+    latest_release_by_repo: dict[Any, tuple[str, datetime | None]] = {
+        row.repo_id: (row.tag_name, row.published_at)
+        for row in (await db.execute(latest_rel_stmt)).all()
     }
 
-    # For each repo, count merged PRs since the latest release
+    # 3. Merged-PR count per repo, gated by each repo's latest published_at.
+    # We do one query that returns (repo_id, count) where the count is for
+    # PRs merged AFTER each repo's latest release. The CASE expression
+    # encodes "pre-release" gate per row; missing released = no gate.
+    pr_count_stmt = (
+        select(PullRequest.repo_id, func.count().label("c"))
+        .where(
+            PullRequest.repo_id.in_(repo_ids),
+            PullRequest.state == "merged",
+            PullRequest.merged_at.is_not(None),  # NULL guard: ignore corrupt rows
+        )
+        .group_by(PullRequest.repo_id)
+    )
+    # Apply the per-repo gate via OR of (no release yet) OR (merged_at > that release)
+    gates = []
+    for rid, (_, latest_at) in latest_release_by_repo.items():
+        if latest_at is not None:
+            gates.append(
+                and_(PullRequest.repo_id == rid, PullRequest.merged_at > latest_at)
+            )
+    repos_with_release = set(latest_release_by_repo.keys())
+    repos_without_release = [rid for rid in repo_ids if rid not in repos_with_release]
+    if repos_without_release:
+        gates.append(PullRequest.repo_id.in_(repos_without_release))
+    if gates:
+        pr_count_stmt = pr_count_stmt.where(or_(*gates))
+    else:
+        # No repos at all to gate — short-circuit to zero counts
+        pr_count_stmt = pr_count_stmt.where(PullRequest.repo_id == None)  # noqa: E711
+
+    merged_counts: dict[Any, int] = {
+        row.repo_id: row.c for row in (await db.execute(pr_count_stmt)).all()
+    }
+
     items: list[dict[str, Any]] = []
     for repo in repos:
-        latest_at = latest_releases.get(repo.id)
-        merged_count_q = select(func.count()).select_from(PullRequest).where(
-            PullRequest.repo_id == repo.id,
-            PullRequest.state == "merged",
-        )
-        if latest_at is not None:
-            merged_count_q = merged_count_q.where(PullRequest.merged_at > latest_at)
-        merged_count = (await db.execute(merged_count_q)).scalar() or 0
-
-        # Get the latest release's tag for display
-        tag_q = (
-            select(Release.tag_name, Release.published_at)
-            .where(Release.repo_id == repo.id, Release.draft.is_(False))
-            .order_by(Release.published_at.desc())
-            .limit(1)
-        )
-        tag_row = (await db.execute(tag_q)).first()
+        tag, published_at = latest_release_by_repo.get(repo.id, (None, None))
         items.append(
             {
                 "repo_id": str(repo.id),
@@ -117,15 +141,13 @@ async def list_releases_overview(
                 "name": repo.name,
                 "full_name": repo.full_name,
                 "visibility": repo.visibility,
-                "latest_tag": tag_row.tag_name if tag_row else None,
-                "latest_published_at": tag_row.published_at.isoformat()
-                if tag_row and tag_row.published_at
-                else None,
-                "unreleased_pr_count": merged_count,
+                "latest_tag": tag,
+                "latest_published_at": published_at.isoformat() if published_at else None,
+                "unreleased_pr_count": merged_counts.get(repo.id, 0),
             }
         )
 
-    items.sort(key=lambda r: r["unreleased_pr_count"], reverse=True)
+    items.sort(key=lambda r: int(r["unreleased_pr_count"]), reverse=True)
     return {"items": items}
 
 
@@ -166,10 +188,16 @@ async def get_release_draft(
     )
     latest = (await db.execute(last_q)).scalar_one_or_none()
 
-    # Pull merged PRs since
+    # Pull merged PRs since the latest release. Defensive: a PR with
+    # state='merged' but NULL merged_at is corrupt sync data — skip it
+    # rather than silently include or exclude based on the time gate.
     pr_stmt = (
         select(PullRequest)
-        .where(PullRequest.repo_id == repo.id, PullRequest.state == "merged")
+        .where(
+            PullRequest.repo_id == repo.id,
+            PullRequest.state == "merged",
+            PullRequest.merged_at.is_not(None),
+        )
         .order_by(PullRequest.merged_at.desc())
     )
     if latest is not None and latest.published_at is not None:

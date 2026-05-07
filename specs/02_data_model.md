@@ -189,18 +189,32 @@ Operational table — what synced, when, how long, errors.
 
 ## Priority score (inbox ranking)
 
+The score is split between an **atemporal** component stored on
+`inbox_items.priority_score` (rebuilt at sync time) and a **temporal
+decay** computed at query time. See D24 for the rationale.
+
 ```
-priority_score =
-    50 * is_review_request
-  + 40 * is_mention
-  + 25 * is_needs_response
-  + 0.5 * reactions_total           -- popular issues bubble up
-  - 5  * days_since_last_activity   -- recent things matter more
-  - 10 * is_draft_pr                -- drafts deprioritize
-  + 15 * is_blocking_release        -- merged into milestone tagged 'next'
+static_priority =                                  (stored, atemporal)
+  + 0.5 * reactions_total                          -- popular issues bubble up
+  - 10  * is_draft_pr                              -- drafts deprioritize
+  +  5  * has_label("good first issue"|"help wanted")
+
+total_score =                                      (computed at query time)
+    static_priority
+  - 5 * days_since_last_activity                   -- recent things matter more
 ```
 
-Clamp to [0, 100]. The exact weights are placeholders — we'll tune from real usage. The point is the scoring is *transparent and editable* in code, not a black box.
+> **Phase 5 reality vs original spec:**
+> The original spec listed `is_review_request`/`is_mention`/`is_needs_response`/
+> `is_blocking_release` weights and a clamp to `[0, 100]`. None of those
+> signals are collected yet — D25 documents the deliberate deferral. The
+> `is_*` columns are pre-allocated on `inbox_items` for Phase 6+ to
+> populate without a migration. **No clamp** is applied because total_score
+> is order-only — magnitudes are arbitrary, only relative ordering matters.
+
+The exact weights are placeholders pinned by `tests/test_priority.py`.
+Tuning means changing one constant + reading the test that pinned it.
+The scoring is *transparent and editable* in code, not a black box.
 
 `is_needs_response` heuristic: PR/issue updated by someone other than the maintainer in the last update, AND the maintainer hasn't commented since.
 

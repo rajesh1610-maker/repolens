@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Sidebar from "@/components/sidebar/Sidebar";
 import { FirstRunWizard } from "@/components/wizard/FirstRunWizard";
+import { HotkeyOverlay } from "@/components/HotkeyOverlay";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,6 +23,7 @@ export default function RootLayout({
             <main className="flex-1 p-8 overflow-auto">{children}</main>
           </div>
         </FirstRunWizard>
+        <HotkeyOverlay />
       </body>
     </html>
   );

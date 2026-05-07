@@ -87,7 +87,7 @@ export default function InboxPage() {
           Open PRs and issues across your tracked repos, ranked by priority and freshness.{" "}
           <span className="text-zinc-600">
             Hotkeys: <kbd className="kbd">j</kbd>/<kbd className="kbd">k</kbd> move ·{" "}
-            <kbd className="kbd">o</kbd> open
+            <kbd className="kbd">o</kbd> open · <kbd className="kbd">?</kbd> all
           </span>
         </p>
       </div>

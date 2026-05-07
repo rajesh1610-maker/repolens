@@ -81,3 +81,54 @@ async def test_repos_response_includes_stars_30d_array() -> None:
     assert isinstance(sample["stars_30d"], list)
     # Always exactly 30 elements (the "missing days carry forward" rule)
     assert len(sample["stars_30d"]) == 30
+
+
+@pytest.mark.asyncio
+async def test_traffic_default_window_is_28_days() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        repos = (await client.get("/api/repos")).json()
+        if not repos:
+            pytest.skip("no repos synced")
+        owner, name = repos[0]["owner"], repos[0]["name"]
+        resp = await client.get(f"/api/repos/{owner}/{name}/traffic")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["days"] == 28
+    assert len(body["series"]) == 28
+
+
+@pytest.mark.asyncio
+async def test_traffic_accepts_min_and_max_window() -> None:
+    """days=7 (floor) and days=90 (ceiling) are accepted."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        repos = (await client.get("/api/repos")).json()
+        if not repos:
+            pytest.skip("no repos synced")
+        owner, name = repos[0]["owner"], repos[0]["name"]
+        r7 = await client.get(f"/api/repos/{owner}/{name}/traffic?days=7")
+        r90 = await client.get(f"/api/repos/{owner}/{name}/traffic?days=90")
+    assert r7.status_code == 200
+    assert r90.status_code == 200
+    assert len(r7.json()["series"]) == 7
+    assert len(r90.json()["series"]) == 90
+
+
+@pytest.mark.asyncio
+async def test_contributors_envelope_includes_limit_and_db_total() -> None:
+    """`total` reflects DB count, not items[] length — frontend can paginate."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        repos = (await client.get("/api/repos")).json()
+        if not repos:
+            pytest.skip("no repos synced")
+        owner, name = repos[0]["owner"], repos[0]["name"]
+        resp = await client.get(
+            f"/api/repos/{owner}/{name}/contributors?limit=1"
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["limit"] == 1
+    assert len(body["items"]) <= 1
+    assert body["total"] >= len(body["items"])

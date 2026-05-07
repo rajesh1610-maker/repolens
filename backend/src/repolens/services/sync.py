@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +29,10 @@ log = logging.getLogger(__name__)
 
 # How far back to look on the very first sync (no prior successful run).
 INITIAL_SYNC_LOOKBACK = timedelta(days=90)
+
+# Contributors are scored by commits in the trailing N weeks. 13 weeks ≈ 90
+# days, matching the spec's "last 90d" requirement (specs/02_data_model.md).
+CONTRIBUTOR_RECENT_WEEKS = 13
 
 
 class SyncBusy(Exception):
@@ -316,7 +320,7 @@ async def sync_stars_snapshot_for_repo(
 
 
 def parse_contributor_stats(
-    stats: list[dict[str, Any]], *, recent_weeks: int = 13
+    stats: list[dict[str, Any]], *, recent_weeks: int = CONTRIBUTOR_RECENT_WEEKS
 ) -> list[dict[str, Any]]:
     """Pure transform: GitHub /stats/contributors → list of contributor rows.
 
@@ -354,11 +358,19 @@ def parse_contributor_stats(
 async def sync_contributors_for_repo(
     db: AsyncSession, github: GitHubClient, repo: Repo
 ) -> int:
-    """Pull /stats/contributors, sum last 13 weeks of commits per author, upsert.
+    """Rebuild contributors for one repo from GitHub's /stats/contributors.
 
-    Returns the count of contributor rows persisted. Returns 0 (no error)
-    when GitHub answers 202 — the cache is still warming and we'll get
-    real data on the next sync.
+    Semantics: REPLACE the per-repo contributor list with whatever GitHub
+    returns. Old rows for contributors no longer in the response are
+    deleted — the spec ("we rebuild the full list on each successful
+    contributors-sync, so missing rows indicate the contributor stopped
+    contributing") is enforced here. The DELETE + INSERT are inside the
+    same per-repo transaction (committed together by run_full_sync), so a
+    failed insert leaves the previous contributor list intact.
+
+    Returns the count of contributor rows persisted. Returns 0 (no error,
+    no DELETE) when GitHub answers 202 — the cache is still warming and
+    we'll get real data on the next sync.
     """
     try:
         stats = await github.get_repo_contributors_stats(repo.owner, repo.name)
@@ -367,6 +379,11 @@ async def sync_contributors_for_repo(
         return 0
 
     parsed = parse_contributor_stats(stats)
+
+    # Replace, don't merge: drop the prior list for this repo. (Pure
+    # upsert would leave inactive contributors as ghosts.)
+    await db.execute(delete(Contributor).where(Contributor.repo_id == repo.id))
+
     if not parsed:
         return 0
 
@@ -383,16 +400,7 @@ async def sync_contributors_for_repo(
         }
         for entry in parsed
     ]
-
-    stmt = insert(Contributor).values(rows)
-    update_payload = {
-        col: getattr(stmt.excluded, col)
-        for col in ("avatar_url", "commits_total", "last_commit_at", "synced_at")
-    }
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["repo_id", "github_login"], set_=update_payload
-    )
-    await db.execute(stmt)
+    await db.execute(insert(Contributor).values(rows))
     return len(rows)
 
 

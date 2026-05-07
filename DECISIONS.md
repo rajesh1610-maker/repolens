@@ -262,3 +262,29 @@ don't repeat.
 - **Options:** (A) Per-repo sparkline endpoint (N+1 from the wall), (B) Single endpoint embeds the data
 - **Choice:** B
 - **Why:** 30 ints × 30 repos ≈ 3.6 KB — negligible payload. Avoids client-side N+1 (one fetch per card). Implemented as one batched grouped query (`_stars_30d_by_repo`). Missing days fill via last-observation-carried-forward; leading 0s — frontend renders without gap-handling logic.
+
+---
+
+## 2026-05-07 — Phase 7 QA pass
+
+Independent agent + my own pass + the existing 5 quality gates surfaced
+three real issues. All fixed in this commit.
+
+### D47 — Contributors-sync uses replace semantics, not upsert
+- **Was:** `sync_contributors_for_repo` upserted only — contributors who stopped contributing remained in the local DB indefinitely as ghosts. The model's docstring already promised "we rebuild the full list", but the code didn't match.
+- **Fix:** `DELETE FROM contributors WHERE repo_id = ?` then bulk INSERT, both inside the per-repo transaction. A failed insert leaves the previous contributor list intact (transaction roll-back). Critically, the DELETE is **only** issued when GitHub returns a real (non-202) response — a 202 must NOT wipe the prior list.
+- **Tests:** `test_contributors_rebuild.py` covers (a) first sync persists, (b) second sync drops a contributor who disappeared, (c) 202 keeps the prior list intact.
+
+### D48 — `/api/repos/{}/{}/contributors` returns DB total, not items length
+- **Was:** Endpoint returned `{"items": items, "total": len(items)}` — when `limit` truncated results, `total` was wrong, breaking pagination.
+- **Fix:** Separate `COUNT(*)` query, response now `{"items": items, "total": <db_total>, "limit": limit}`. Matches the pattern used by `/pulls` and `/issues`.
+
+### D49 — Extract `CONTRIBUTOR_RECENT_WEEKS = 13` constant
+- **Was:** The 13-week window was a magic-numbered default parameter on `parse_contributor_stats`. Hard to find, no documentation linkage.
+- **Fix:** Module-level constant in `services/sync.py` with comment pointing to the spec. The default parameter now references the constant.
+
+### Coverage additions
+- 3 new tests for traffic edge cases (default 28d, min 7d / max 90d windows).
+- 1 new test for contributors envelope shape (`limit` in response, `total >= len(items)`).
+- 3 new tests for contributors rebuild semantics (D47).
+- Total: **102 backend tests** (was 96).

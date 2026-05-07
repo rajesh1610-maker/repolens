@@ -112,6 +112,7 @@ export type ContributorRow = {
 export type ContributorsResponse = {
   items: ContributorRow[];
   total: number;
+  limit: number;
 };
 
 export type PullRequestRow = {

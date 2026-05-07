@@ -338,15 +338,25 @@ async def get_repo_contributors(
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Top contributors by commits in the last 90 days, descending."""
+    """Top contributors by commits in the last 90 days, descending.
+
+    `total` is the DB-wide count for this repo, *not* the length of the
+    returned `items` array. Frontend can paginate when total > limit.
+    """
     repo = await _resolve_repo_or_404(owner, name, db)
-    stmt = (
+    items_stmt = (
         select(Contributor)
         .where(Contributor.repo_id == repo.id)
         .order_by(Contributor.commits_total.desc(), Contributor.github_login)
         .limit(limit)
     )
-    rows = list((await db.execute(stmt)).scalars().all())
+    total_stmt = (
+        select(func.count())
+        .select_from(Contributor)
+        .where(Contributor.repo_id == repo.id)
+    )
+    rows = list((await db.execute(items_stmt)).scalars().all())
+    total = (await db.execute(total_stmt)).scalar() or 0
     items = [
         {
             "id": str(c.id),
@@ -357,7 +367,7 @@ async def get_repo_contributors(
         }
         for c in rows
     ]
-    return {"items": items, "total": len(items)}
+    return {"items": items, "total": total, "limit": limit}
 
 
 async def _set_tracked(repo_id: uuid.UUID, tracked: bool, db: AsyncSession) -> dict[str, Any]:

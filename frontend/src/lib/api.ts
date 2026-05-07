@@ -67,9 +67,49 @@ export type RepoSummary = {
   stars: number;
   forks: number;
   open_issues_count: number;
+  open_pulls_count: number;
+  open_issues_real_count: number;
+  merged_pulls_30d: number;
   pushed_at: string | null;
   tracked: boolean;
   synced_at: string | null;
+};
+
+export type PullRequestRow = {
+  id: string;
+  number: number;
+  title: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  author_login: string | null;
+  author_avatar_url: string | null;
+  labels: string[];
+  created_at: string | null;
+  updated_at: string | null;
+  closed_at: string | null;
+  merged_at: string | null;
+};
+
+export type IssueRow = {
+  id: string;
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  author_login: string | null;
+  author_avatar_url: string | null;
+  labels: string[];
+  comments_count: number;
+  reactions_total: number;
+  created_at: string | null;
+  updated_at: string | null;
+  closed_at: string | null;
+};
+
+export type Paginated<T> = {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 export type SyncRunSummary = {

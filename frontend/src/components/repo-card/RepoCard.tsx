@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Star, GitFork, CircleDot, GitBranch, Lock } from "lucide-react";
+import { Star, GitPullRequest, CircleDot, GitBranch, Lock } from "lucide-react";
 import type { RepoSummary } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -43,8 +43,8 @@ export function RepoCard({ repo }: { repo: RepoSummary }) {
 
       <div className="grid grid-cols-3 gap-2 mb-4 text-xs">
         <Stat icon={Star} label="stars" value={repo.stars} />
-        <Stat icon={GitFork} label="forks" value={repo.forks} />
-        <Stat icon={CircleDot} label="issues" value={repo.open_issues_count} />
+        <Stat icon={GitPullRequest} label="PRs" value={repo.open_pulls_count} />
+        <Stat icon={CircleDot} label="issues" value={repo.open_issues_real_count} />
       </div>
 
       <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-3 border-t border-zinc-800/60">

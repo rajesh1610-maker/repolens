@@ -71,3 +71,20 @@ export type RepoSummary = {
   tracked: boolean;
   synced_at: string | null;
 };
+
+export type SyncRunSummary = {
+  id: string;
+  status: "running" | "ok" | "failed";
+  started_at: string | null;
+  finished_at: string | null;
+  repos_synced: number;
+  api_calls: number;
+  rate_limit_remaining: number | null;
+  error: string | null;
+};
+
+export type LastSyncResponse = {
+  last_run: SyncRunSummary | null;
+};
+
+export const SYNC_EVENT = "repolens:synced";

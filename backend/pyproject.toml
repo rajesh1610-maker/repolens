@@ -19,6 +19,7 @@ dependencies = [
     "click>=8.1",
     "cryptography>=42.0",
     "apscheduler>=3.10",
+    "anthropic>=0.50",
 ]
 
 [project.scripts]

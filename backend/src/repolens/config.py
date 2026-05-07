@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3003"
     log_level: str = "INFO"
     github_pat: str | None = None
+    anthropic_api_key: str | None = None
     repolens_encryption_key: str | None = None
 
     # Scheduler (D5): default off in dev where uvicorn --reload would
@@ -24,6 +25,12 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = False
     scheduler_interval_minutes: int = 30
     sync_watchdog_minutes: int = 15
+
+    # Phase 8: weekly digest. Opus 4.7 is the default — adaptive thinking
+    # only, ~$5/M in / $25/M out. Switch to claude-haiku-4-5 for cheap
+    # local iteration; the cost table in services/anthropic_client.py
+    # covers both.
+    digest_model: str = "claude-opus-4-7"
 
     @property
     def cors_origins_list(self) -> list[str]:

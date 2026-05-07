@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import __version__
 from .config import get_settings
 from .db import engine, get_db
+from .routers import digests as digests_router
 from .routers import inbox as inbox_router
 from .routers import releases as releases_router
 from .routers import repos as repos_router
@@ -46,6 +47,7 @@ app.include_router(sync_router.router)
 app.include_router(inbox_router.router)
 app.include_router(triage_router.router)
 app.include_router(releases_router.router)
+app.include_router(digests_router.router)
 
 
 @app.get("/healthz")

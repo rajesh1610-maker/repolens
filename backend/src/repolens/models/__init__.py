@@ -1,5 +1,6 @@
 from .base import Base
 from .contributor import Contributor
+from .digest import Digest
 from .inbox_item import InboxItem
 from .issue import Issue
 from .pull_request import PullRequest
@@ -13,6 +14,7 @@ from .user import User
 __all__ = [
     "Base",
     "Contributor",
+    "Digest",
     "InboxItem",
     "Issue",
     "PullRequest",

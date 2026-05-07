@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3003"
     log_level: str = "INFO"
     github_pat: str | None = None
+    repolens_encryption_key: str | None = None
 
     @property
     def cors_origins_list(self) -> list[str]:

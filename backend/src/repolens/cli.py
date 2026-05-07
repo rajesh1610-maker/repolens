@@ -5,8 +5,8 @@ import sys
 
 import click
 
-from .config import get_settings
 from .db import SessionLocal, engine
+from .services.auth import resolve_pat
 from .services.github_client import GitHubClient
 from .services.sync import sync_repos
 
@@ -23,17 +23,17 @@ def sync_repos_cmd() -> None:
 
 
 async def _sync_repos() -> None:
-    settings = get_settings()
-    if not settings.github_pat:
-        click.echo(
-            "Error: GITHUB_PAT not set. Add it to backend/.env or export it.",
-            err=True,
-        )
-        sys.exit(1)
-
     try:
-        async with GitHubClient(token=settings.github_pat) as github:
-            async with SessionLocal() as db:
+        async with SessionLocal() as db:
+            pat = await resolve_pat(db)
+            if not pat:
+                click.echo(
+                    "Error: no PAT available. Save one via the Settings page "
+                    "(http://localhost:3003/settings) or set GITHUB_PAT in backend/.env.",
+                    err=True,
+                )
+                sys.exit(1)
+            async with GitHubClient(token=pat) as github:
                 run = await sync_repos(db, github)
         elapsed = (run.finished_at - run.started_at).total_seconds() if run.finished_at else 0.0
         click.echo(

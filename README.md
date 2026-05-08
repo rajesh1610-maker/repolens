@@ -1,11 +1,11 @@
 # RepoLens
 
-> Solo-maintainer cockpit for your entire OSS surface.
+> Stop opening 12 GitHub tabs. One screen for every PR, issue, release, and contributor across every repo you maintain — plus a weekly Claude digest that costs ~$0.08 and refuses to invent PR numbers.
 
 **Status:** v0.1 — all 9 build phases complete · self-hosted single user
 **Stack:** FastAPI · Postgres 15 · Next.js 14 · Anthropic Claude (optional)
 
-GitHub gives you ten different screens for ten different things. RepoLens is one screen for all of them — across every repo you maintain.
+GitHub gives you ten different screens for ten different things. RepoLens is one screen for all of them — across every repo you maintain. Self-hosted, your token, your machine, no telemetry.
 
 ## What it does
 

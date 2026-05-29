@@ -2,7 +2,7 @@
 
 ## Vision
 
-**RepoLens is the cockpit a solo OSS maintainer wishes GitHub had.**
+**RepoLens is the cockpit - a solo OSS maintainer wishes GitHub had.**
 
 GitHub's UI is repo-first: every screen forces you to pick a repo, then drill in. But maintainers don't think repo-first — they think *"what needs me today, across everything I own?"* RepoLens flips that axis: maintainer-first, repo-as-attribute.
 
